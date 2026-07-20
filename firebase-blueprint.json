@@ -1,0 +1,198 @@
+{
+  "entities": {
+    "Sector": {
+      "title": "Sector",
+      "description": "Sector details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique sector ID" },
+        "name": { "type": "string", "description": "Sector name" },
+        "description": { "type": "string", "description": "Sector description" },
+        "color": { "type": "string", "description": "Sector hex or tailwind color" }
+      },
+      "required": ["id", "name"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee profiles and document association",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique employee ID" },
+        "name": { "type": "string", "description": "Full name of the employee" },
+        "email": { "type": "string", "description": "Work email address" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "sector": { "type": "string", "description": "Associated sector name" },
+        "role": { "type": "string", "description": "Job title" },
+        "admissionDate": { "type": "string", "description": "Date of admission" },
+        "status": { "type": "string", "enum": ["Ativo", "Inativo"] },
+        "associatedPOPs": { "type": "array", "items": { "type": "string" }, "description": "Linked POP document IDs" },
+        "associatedATRs": { "type": "array", "items": { "type": "string" }, "description": "Linked ATR document IDs" },
+        "associatedITs": { "type": "array", "items": { "type": "string" }, "description": "Linked IT document IDs" },
+        "cpf": { "type": "string" },
+        "registrationNumber": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "phone", "sector", "role", "admissionDate", "status"]
+    },
+    "ATR": {
+      "title": "ATR",
+      "description": "Análise Temática de Requisitos / Atribuições de Cargo",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "sector": { "type": "string" },
+        "directLeader": { "type": "string" },
+        "indirectLeader": { "type": "string" },
+        "summary": { "type": "string" },
+        "detailedTasks": { "type": "array", "items": { "type": "string" } },
+        "requirements": {
+          "type": "object",
+          "properties": {
+            "education": { "type": "string" },
+            "technicalCompetencies": { "type": "array", "items": { "type": "string" } },
+            "experience": { "type": "string" },
+            "skills": { "type": "array", "items": { "type": "string" } },
+            "attitudes": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "notes": { "type": "string" },
+        "emissionDate": { "type": "string" },
+        "revision": { "type": "string" },
+        "revisionDate": { "type": "string" },
+        "revisionHistory": { "type": "array", "items": { "$ref": "RevisionHistoryEntry" } }
+      },
+      "required": ["id", "title", "sector", "directLeader", "summary", "detailedTasks", "requirements", "emissionDate", "revision"]
+    },
+    "POP": {
+      "title": "POP",
+      "description": "Procedimento Operacional Padrão",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "process": { "type": "string" },
+        "sector": { "type": "string" },
+        "emissionDate": { "type": "string" },
+        "revision": { "type": "string" },
+        "revisionDate": { "type": "string" },
+        "revisionHistory": { "type": "array", "items": { "$ref": "RevisionHistoryEntry" } },
+        "pages": { "type": "string" },
+        "objective": { "type": "string" },
+        "applicationField": { "type": "array", "items": { "type": "string" } },
+        "responsiblePrimary": { "type": "string" },
+        "responsibleSupport": { "type": "array", "items": { "type": "string" } },
+        "inputs": { "type": "array", "items": { "type": "string" } },
+        "steps": { "type": "array", "items": { "$ref": "POPStep" } },
+        "outputs": { "type": "array", "items": { "type": "string" } },
+        "performanceIndicators": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "title", "process", "sector", "emissionDate", "revision", "pages", "objective", "applicationField", "responsiblePrimary", "responsibleSupport", "inputs", "steps", "outputs", "performanceIndicators"]
+    },
+    "IT": {
+      "title": "IT",
+      "description": "Instrução de Trabalho",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "sector": { "type": "string" },
+        "objective": { "type": "string" },
+        "responsible": { "type": "string" },
+        "steps": { "type": "array", "items": { "type": "string" } },
+        "emissionDate": { "type": "string" },
+        "revision": { "type": "string" },
+        "revisionDate": { "type": "string" },
+        "revisionHistory": { "type": "array", "items": { "$ref": "RevisionHistoryEntry" } }
+      },
+      "required": ["id", "title", "sector", "objective", "responsible", "steps", "emissionDate", "revision"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "User login credentials and roles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "gestor", "colaborador", "lider"] },
+        "employeeId": { "type": "string" }
+      },
+      "required": ["id", "username", "name", "role"]
+    },
+    "ProfilePermissions": {
+      "title": "ProfilePermissions",
+      "description": "System role-based permissions matrix",
+      "type": "object",
+      "properties": {
+        "colaborador": { "$ref": "ProfilePermissionItem" },
+        "gestor": { "$ref": "ProfilePermissionItem" },
+        "lider": { "$ref": "ProfilePermissionItem" }
+      },
+      "required": ["colaborador", "gestor"]
+    },
+    "ProfilePermissionItem": {
+      "title": "ProfilePermissionItem",
+      "type": "object",
+      "properties": {
+        "canSeeAllDocs": { "type": "boolean" },
+        "canSeeEmployees": { "type": "boolean" },
+        "canSeeSectors": { "type": "boolean" },
+        "canEditEmployees": { "type": "boolean" },
+        "canEditDocs": { "type": "boolean" }
+      },
+      "required": ["canSeeAllDocs", "canSeeEmployees", "canSeeSectors", "canEditEmployees", "canEditDocs"]
+    },
+    "RevisionHistoryEntry": {
+      "title": "RevisionHistoryEntry",
+      "type": "object",
+      "properties": {
+        "revision": { "type": "string" },
+        "date": { "type": "string" },
+        "description": { "type": "string" },
+        "author": { "type": "string" }
+      },
+      "required": ["revision", "date", "description", "author"]
+    },
+    "POPStep": {
+      "title": "POPStep",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "substeps": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["title", "description"]
+    }
+  },
+  "firestore": {
+    "sectors": {
+      "schema": "Sector",
+      "description": "Collection of business sectors"
+    },
+    "employees": {
+      "schema": "Employee",
+      "description": "Collection of employee details"
+    },
+    "atrs": {
+      "schema": "ATR",
+      "description": "Collection of Cargo requirement analysis (ATR) documents"
+    },
+    "pops": {
+      "schema": "POP",
+      "description": "Collection of Standard Operating Procedure (POP) documents"
+    },
+    "its": {
+      "schema": "IT",
+      "description": "Collection of Work Instruction (IT) documents"
+    },
+    "users": {
+      "schema": "UserAccount",
+      "description": "Collection of user metadata"
+    },
+    "permissions": {
+      "schema": "ProfilePermissions",
+      "description": "Config of permissions"
+    }
+  }
+}

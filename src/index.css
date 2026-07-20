@@ -1,0 +1,194 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "Fira Code", monospace;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+/* Spin animation speed */
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+/* Print Styles */
+@media print {
+  /* Page size and margin configuration */
+  @page {
+    size: A4 portrait;
+    margin: 15mm 15mm 15mm 15mm;
+  }
+
+  /* Force light theme colors on print with perfect contrast */
+  html, body {
+    background-color: #ffffff !important;
+    color: #0f172a !important; /* slate-900 */
+    font-size: 11pt !important;
+    font-family: "Inter", sans-serif !important;
+  }
+
+  /* Force background colors and borders to print accurately */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Hide absolutely all interactive/navigation components */
+  header,
+  nav,
+  aside,
+  button,
+  footer,
+  .no-print,
+  .theme-toggle,
+  .search-filters,
+  #root > div > header,
+  #root > div > main > section.no-print {
+    display: none !important;
+  }
+
+  /* Override grids to make everything flow sequentially */
+  main,
+  #root > div > main,
+  .grid {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Ensure detail section spans 100% of printable page width */
+  .lg\:col-span-8,
+  .lg\:col-span-12,
+  .print-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  /* Fix scroll clipping: force height auto and overflow visible on all structural elements */
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .flex-1,
+  main,
+  section,
+  div {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block !important;
+  }
+
+  /* Restore table displays since they shouldn't be simple blocks */
+  table {
+    display: table !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin-top: 15px !important;
+    margin-bottom: 15px !important;
+    page-break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr {
+    display: table-row !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  th, td {
+    display: table-cell !important;
+    border: 1px solid #cbd5e1 !important; /* slate-300 */
+    padding: 8px 12px !important;
+    font-size: 10pt !important;
+  }
+
+  /* Maintain brand coloring as solid ink-friendly colors on white paper */
+  .text-sky-600, .text-sky-550, .text-sky-500, .dark\:text-sky-400 {
+    color: #0284c7 !important; /* sky-600 */
+  }
+
+  .text-indigo-600, .text-indigo-500, .dark\:text-indigo-400 {
+    color: #4f46e5 !important; /* indigo-600 */
+  }
+
+  .text-amber-600, .text-amber-500, .dark\:text-amber-400 {
+    color: #d97706 !important; /* amber-600 */
+  }
+
+  .text-emerald-600, .text-emerald-500, .dark\:text-emerald-400 {
+    color: #059669 !important; /* emerald-600 */
+  }
+
+  /* Elegant backgrounds for table cards and banners in print */
+  .bg-slate-50\/25, .bg-slate-50\/50, .bg-slate-50\/35, .bg-slate-50\/20 {
+    background-color: #f8fafc !important; /* slate-50 */
+  }
+
+  .bg-sky-500\/10 {
+    background-color: #f0f9ff !important; /* sky-50 */
+  }
+
+  .bg-indigo-500\/10 {
+    background-color: #f5f3ff !important; /* indigo-50 */
+  }
+
+  .bg-amber-500\/10 {
+    background-color: #fef3c7 !important; /* amber-50 */
+  }
+
+  /* Page break rules for structured hierarchy */
+  h1, h2, h3 {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .page-break-inside-avoid {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Logo print sizing */
+  .print-logo {
+    width: 140px !important;
+    height: auto !important;
+  }
+}
