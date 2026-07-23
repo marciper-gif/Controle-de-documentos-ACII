@@ -52,6 +52,7 @@ import AdminUsersModal from './components/AdminUsersModal';
 import EmployeeManager from './components/EmployeeManager';
 import SectorManager from './components/SectorManager';
 import GoogleWorkspaceManager from './components/GoogleWorkspaceManager';
+import SplashScreen from './components/SplashScreen';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -201,13 +202,16 @@ function ACIILogo({ className = "w-full h-auto" }: { className?: string }) {
 }
 
 export default function App() {
+  // Splash Screen State
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+
   // User Management State
   const [users, rawSetUsers] = useState<UserAccount[]>(() => {
     const saved = localStorage.getItem('ms-users');
     if (!saved) {
       const defaultUsers: UserAccount[] = [
-        { id: '1', username: 'admin', name: 'Administrador Geral', password: 'admin', role: 'admin' },
-        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: '123', role: 'colaborador' }
+        { id: '1', username: 'admin', name: 'Administrador Geral', password: 'admin', role: 'admin', status: 'Ativo', primeiro_acesso: false },
+        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: '123', role: 'colaborador', status: 'Ativo', primeiro_acesso: true }
       ];
       localStorage.setItem('ms-users', JSON.stringify(defaultUsers));
       return defaultUsers;
@@ -222,19 +226,17 @@ export default function App() {
   const setUsers = useCallback((val: React.SetStateAction<UserAccount[]>) => {
     rawSetUsers((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      if (auth.currentUser) {
-        prev.forEach(item => {
-          if (!computed.some(c => c.id === item.id)) {
-            dbDeleteUserAccount(item.id);
-          }
-        });
-        computed.forEach(item => {
-          const original = prev.find(p => p.id === item.id);
-          if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-            dbSaveUserAccount(item);
-          }
-        });
-      }
+      prev.forEach(item => {
+        if (!computed.some(c => c.id === item.id)) {
+          dbDeleteUserAccount(item.id);
+        }
+      });
+      computed.forEach(item => {
+        const original = prev.find(p => p.id === item.id);
+        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+          dbSaveUserAccount(item);
+        }
+      });
       return computed;
     });
   }, []);
@@ -294,9 +296,7 @@ export default function App() {
   const setProfilePermissions = useCallback((val: React.SetStateAction<ProfilePermissions>) => {
     rawSetProfilePermissions((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      if (auth.currentUser) {
-        dbSavePermissions(computed);
-      }
+      dbSavePermissions(computed);
       return computed;
     });
   }, []);
@@ -411,19 +411,17 @@ export default function App() {
   const setATRs = useCallback((val: React.SetStateAction<ATR[]>) => {
     rawSetATRs((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      if (auth.currentUser) {
-        prev.forEach(item => {
-          if (!computed.some(c => c.id === item.id)) {
-            dbDeleteATR(item.id);
-          }
-        });
-        computed.forEach(item => {
-          const original = prev.find(p => p.id === item.id);
-          if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-            dbSaveATR(item);
-          }
-        });
-      }
+      prev.forEach(item => {
+        if (!computed.some(c => c.id === item.id)) {
+          dbDeleteATR(item.id);
+        }
+      });
+      computed.forEach(item => {
+        const original = prev.find(p => p.id === item.id);
+        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+          dbSaveATR(item);
+        }
+      });
       return computed;
     });
   }, []);
@@ -444,19 +442,17 @@ export default function App() {
   const setPOPs = useCallback((val: React.SetStateAction<POP[]>) => {
     rawSetPOPs((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      if (auth.currentUser) {
-        prev.forEach(item => {
-          if (!computed.some(c => c.id === item.id)) {
-            dbDeletePOP(item.id);
-          }
-        });
-        computed.forEach(item => {
-          const original = prev.find(p => p.id === item.id);
-          if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-            dbSavePOP(item);
-          }
-        });
-      }
+      prev.forEach(item => {
+        if (!computed.some(c => c.id === item.id)) {
+          dbDeletePOP(item.id);
+        }
+      });
+      computed.forEach(item => {
+        const original = prev.find(p => p.id === item.id);
+        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+          dbSavePOP(item);
+        }
+      });
       return computed;
     });
   }, []);
@@ -477,19 +473,17 @@ export default function App() {
   const setITs = useCallback((val: React.SetStateAction<IT[]>) => {
     rawSetITs((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      if (auth.currentUser) {
-        prev.forEach(item => {
-          if (!computed.some(c => c.id === item.id)) {
-            dbDeleteIT(item.id);
-          }
-        });
-        computed.forEach(item => {
-          const original = prev.find(p => p.id === item.id);
-          if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-            dbSaveIT(item);
-          }
-        });
-      }
+      prev.forEach(item => {
+        if (!computed.some(c => c.id === item.id)) {
+          dbDeleteIT(item.id);
+        }
+      });
+      computed.forEach(item => {
+        const original = prev.find(p => p.id === item.id);
+        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+          dbSaveIT(item);
+        }
+      });
       return computed;
     });
   }, []);
@@ -521,19 +515,17 @@ export default function App() {
   const setSectors = useCallback((val: React.SetStateAction<SectorData[]>) => {
     rawSetSectors((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      if (auth.currentUser) {
-        prev.forEach(item => {
-          if (!computed.some(c => c.id === item.id)) {
-            dbDeleteSector(item.id);
-          }
-        });
-        computed.forEach(item => {
-          const original = prev.find(p => p.id === item.id);
-          if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-            dbSaveSector(item);
-          }
-        });
-      }
+      prev.forEach(item => {
+        if (!computed.some(c => c.id === item.id)) {
+          dbDeleteSector(item.id);
+        }
+      });
+      computed.forEach(item => {
+        const original = prev.find(p => p.id === item.id);
+        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+          dbSaveSector(item);
+        }
+      });
       return computed;
     });
   }, []);
@@ -552,19 +544,17 @@ export default function App() {
   const setEmployees = useCallback((val: React.SetStateAction<Employee[]>) => {
     rawSetEmployees((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      if (auth.currentUser) {
-        prev.forEach(item => {
-          if (!computed.some(c => c.id === item.id)) {
-            dbDeleteEmployee(item.id);
-          }
-        });
-        computed.forEach(item => {
-          const original = prev.find(p => p.id === item.id);
-          if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-            dbSaveEmployee(item);
-          }
-        });
-      }
+      prev.forEach(item => {
+        if (!computed.some(c => c.id === item.id)) {
+          dbDeleteEmployee(item.id);
+        }
+      });
+      computed.forEach(item => {
+        const original = prev.find(p => p.id === item.id);
+        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+          dbSaveEmployee(item);
+        }
+      });
       return computed;
     });
   }, []);
@@ -654,9 +644,9 @@ export default function App() {
     return () => unsubscribe();
   }, [employees]);
 
-  // Synchronize collections with Firestore if Google User is authenticated
+  // Synchronize collections with Firestore for real-time multi-device persistence
   useEffect(() => {
-    if (!currentUser || !auth.currentUser) return;
+    if (!db) return;
 
     // Real-time Sector subscription
     const unsubSectors = onSnapshot(collection(db, 'sectors'), (snapshot) => {
@@ -1622,8 +1612,12 @@ export default function App() {
     return totalVisibleDocsWithoutPendingFilter.filter(doc => getReviewStatus(doc).isPending).length;
   }, [totalVisibleDocsWithoutPendingFilter]);
 
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
+
   if (!currentUser) {
-    return <LoginView onLogin={handleLogin} users={users} />;
+    return <LoginView onLogin={handleLogin} users={users} onUpdateUsers={handleUpdateUsers} />;
   }
 
   return (
@@ -1653,21 +1647,28 @@ export default function App() {
           {/* Navigation Tabs, Actions, and Profile Info */}
           <div className="flex flex-wrap items-center justify-between lg:justify-end gap-3.5 w-full lg:w-auto">
             
-            {/* View Tabs */}
-            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800 shrink-0">
+            {/* View Tabs with Active Indicator */}
+            <div className="relative flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800 shrink-0">
               <button
                 onClick={() => {
                   setCurrentView('portal');
                   setSelectedDocId('');
                 }}
-                className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`relative px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
                   currentView === 'portal'
-                    ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400 font-black shadow-3xs border border-sky-500/20'
+                    ? 'text-sky-600 dark:text-sky-400 font-black'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
                 }`}
               >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Portal</span>
+                {currentView === 'portal' && (
+                  <motion.div
+                    layoutId="activeNavBadge"
+                    className="absolute inset-0 bg-white dark:bg-slate-900 border border-sky-500/30 rounded-lg shadow-2xs"
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  />
+                )}
+                <BookOpen className="w-3.5 h-3.5 z-10" />
+                <span className="z-10">Portal</span>
               </button>
 
               {userPermissions.canSeeEmployees && (
@@ -1676,14 +1677,21 @@ export default function App() {
                     setCurrentView('employees');
                     setSelectedDocId('');
                   }}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`relative px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
                     currentView === 'employees'
-                      ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 font-black shadow-3xs border border-indigo-500/20'
+                      ? 'text-indigo-600 dark:text-indigo-400 font-black'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
                   }`}
                 >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Funcionários</span>
+                  {currentView === 'employees' && (
+                    <motion.div
+                      layoutId="activeNavBadge"
+                      className="absolute inset-0 bg-white dark:bg-slate-900 border border-indigo-500/30 rounded-lg shadow-2xs"
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <Users className="w-3.5 h-3.5 z-10" />
+                  <span className="z-10">Funcionários</span>
                 </button>
               )}
 
@@ -1693,14 +1701,21 @@ export default function App() {
                     setCurrentView('sectors');
                     setSelectedDocId('');
                   }}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`relative px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
                     currentView === 'sectors'
-                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-450 font-black shadow-3xs border border-amber-500/20'
+                      ? 'text-amber-600 dark:text-amber-450 font-black'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
                   }`}
                 >
-                  <Building className="w-3.5 h-3.5" />
-                  <span>Setores</span>
+                  {currentView === 'sectors' && (
+                    <motion.div
+                      layoutId="activeNavBadge"
+                      className="absolute inset-0 bg-white dark:bg-slate-900 border border-amber-500/30 rounded-lg shadow-2xs"
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <Building className="w-3.5 h-3.5 z-10" />
+                  <span className="z-10">Setores</span>
                 </button>
               )}
 
@@ -1708,17 +1723,23 @@ export default function App() {
                 onClick={() => {
                   setCurrentView('workspace');
                   setSelectedDocId('');
-                  // Clear preselections when clicked directly from top-bar
                   setPreselectedDocId('');
                 }}
-                className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`relative px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
                   currentView === 'workspace'
-                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-450 font-black shadow-3xs border border-emerald-500/20'
+                    ? 'text-emerald-600 dark:text-emerald-450 font-black'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
                 }`}
               >
-                <Cloud className="w-3.5 h-3.5" />
-                <span>Workspace</span>
+                {currentView === 'workspace' && (
+                  <motion.div
+                    layoutId="activeNavBadge"
+                    className="absolute inset-0 bg-white dark:bg-slate-900 border border-emerald-500/30 rounded-lg shadow-2xs"
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  />
+                )}
+                <Cloud className="w-3.5 h-3.5 z-10" />
+                <span className="z-10">Workspace</span>
               </button>
             </div>
 
@@ -1736,7 +1757,7 @@ export default function App() {
                 )}
               </button>
 
-              {currentUser.role === 'admin' && (
+              {(currentUser.role === 'admin' || currentUser.role === 'gestor' || currentUser.role === 'lider') && (
                 <button
                   onClick={() => setIsAdminModalOpen(true)}
                   className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-700 rounded-lg text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer font-bold shadow-[0_0_10px_rgba(16,185,129,0.2)]"
@@ -1831,8 +1852,82 @@ export default function App() {
         </div>
       </header>
 
+      {/* Active Screen Indicator Banner */}
+      <div className="no-print bg-slate-100/80 dark:bg-slate-900/50 border-b border-slate-200/60 dark:border-slate-800/60 py-2 px-4 sm:px-8 transition-colors">
+        <div className="max-w-7xl mx-auto flex items-center justify-between text-2xs font-bold uppercase tracking-wider">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-slate-400 dark:text-slate-500">Tela Ativa:</span>
+            <span className="text-slate-800 dark:text-slate-200 font-black flex items-center gap-1.5">
+              {currentView === 'portal' && <><BookOpen className="w-3.5 h-3.5 text-sky-500" /> Portal de Documentos</>}
+              {currentView === 'employees' && <><Users className="w-3.5 h-3.5 text-indigo-500" /> Gestão de Colaboradores</>}
+              {currentView === 'sectors' && <><Building className="w-3.5 h-3.5 text-amber-500" /> Matriz de Setores</>}
+              {currentView === 'workspace' && <><Cloud className="w-3.5 h-3.5 text-emerald-500" /> Google Workspace Integration</>}
+            </span>
+          </div>
+          <div className="hidden sm:flex items-center gap-2 text-slate-400 dark:text-slate-500 text-[10px]">
+            <span>ACII Imperatriz • Sistema de Controle de Processos</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Breadcrumbs Navigation (Migalhas de Pão) */}
+      <div className="no-print max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-1">
+        <nav className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium overflow-x-auto py-1 scrollbar-none">
+          <button
+            onClick={() => {
+              setCurrentView('portal');
+              setSelectedDocId(null);
+            }}
+            className="flex items-center gap-1 hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer shrink-0"
+            title="Ir para o início"
+          >
+            <Home className="w-3.5 h-3.5 text-slate-400" />
+            <span>Início</span>
+          </button>
+
+          <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-700 shrink-0" />
+
+          <button
+            onClick={() => {
+              if (selectedDocId) {
+                setSelectedDocId(null);
+              }
+            }}
+            className={`hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer shrink-0 font-bold ${
+              !selectedDocId ? 'text-sky-600 dark:text-sky-400' : ''
+            }`}
+          >
+            {currentView === 'portal' && 'Portal de Documentos'}
+            {currentView === 'employees' && 'Gestão de Colaboradores'}
+            {currentView === 'sectors' && 'Matriz de Setores'}
+            {currentView === 'workspace' && 'Google Workspace Integration'}
+          </button>
+
+          {currentView === 'portal' && selectedDocId && (
+            <>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-700 shrink-0" />
+              <span className="text-slate-800 dark:text-slate-200 font-bold truncate max-w-[280px]">
+                {selectedDocId}
+              </span>
+            </>
+          )}
+        </nav>
+      </div>
+
       {/* Main Container */}
       <main className={`${isFullScreen ? 'w-full max-w-full px-4 py-6' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'}`}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentView}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+          >
         
         {currentView === 'employees' ? (
           <EmployeeManager 
@@ -1842,6 +1937,8 @@ export default function App() {
             pops={pops}
             atrs={atrs}
             its={its}
+            users={users}
+            setUsers={setUsers}
             onViewDoc={(id, type) => {
               setSelectedDocId(id);
               setSelectedDocType(type);
@@ -3159,6 +3256,8 @@ export default function App() {
         </>
         )}
 
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Creation and Editing Modal */}

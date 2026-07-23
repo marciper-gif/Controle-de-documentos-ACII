@@ -1,11 +1,7 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { app, db, auth, salvarDocumento, deletarDocumento, verificarPersistencia } from '../config/firebase';
+import { doc, getDocFromServer } from 'firebase/firestore';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId); /* CRITICAL: The app will break without this line */
-export const auth = getAuth();
+export { app, db, auth, salvarDocumento, deletarDocumento, verificarPersistencia };
 
 export enum OperationType {
   CREATE = 'create',

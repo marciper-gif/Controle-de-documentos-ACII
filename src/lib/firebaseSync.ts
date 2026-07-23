@@ -2,13 +2,11 @@ import {
   collection,
   doc,
   getDocs,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
   writeBatch
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { db } from './firebase';
+import { salvarDocumento, deletarDocumento } from '../config/firebase';
+import { logSystemEvent } from '../utils/logger';
 import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions } from '../types';
 
 // Initial Data imports for seeding
@@ -28,60 +26,45 @@ export async function seedDatabaseIfEmpty() {
     const sectorsSnap = await getDocs(collection(db, 'sectors'));
     if (sectorsSnap.empty) {
       console.log('Seeding sectors...');
-      const batch = writeBatch(db);
-      initialSectors.forEach((sector) => {
-        const docRef = doc(db, 'sectors', sector.id);
-        batch.set(docRef, sector);
-      });
-      await batch.commit();
+      for (const sector of initialSectors) {
+        await salvarDocumento('sectors', sector, sector.id);
+      }
     }
 
     // Check if employees are empty
     const employeesSnap = await getDocs(collection(db, 'employees'));
     if (employeesSnap.empty) {
       console.log('Seeding employees...');
-      const batch = writeBatch(db);
-      initialEmployees.forEach((emp) => {
-        const docRef = doc(db, 'employees', emp.id);
-        batch.set(docRef, emp);
-      });
-      await batch.commit();
+      for (const emp of initialEmployees) {
+        await salvarDocumento('employees', emp, emp.id);
+      }
     }
 
     // Check if ATRs are empty
     const atrsSnap = await getDocs(collection(db, 'atrs'));
     if (atrsSnap.empty) {
       console.log('Seeding ATRs...');
-      const batch = writeBatch(db);
-      initialATRs.forEach((atr) => {
-        const docRef = doc(db, 'atrs', atr.id);
-        batch.set(docRef, atr);
-      });
-      await batch.commit();
+      for (const atr of initialATRs) {
+        await salvarDocumento('atrs', atr, atr.id);
+      }
     }
 
     // Check if POPs are empty
     const popsSnap = await getDocs(collection(db, 'pops'));
     if (popsSnap.empty) {
       console.log('Seeding POPs...');
-      const batch = writeBatch(db);
-      initialPOPs.forEach((pop) => {
-        const docRef = doc(db, 'pops', pop.id);
-        batch.set(docRef, pop);
-      });
-      await batch.commit();
+      for (const pop of initialPOPs) {
+        await salvarDocumento('pops', pop, pop.id);
+      }
     }
 
     // Check if ITs are empty
     const itsSnap = await getDocs(collection(db, 'its'));
     if (itsSnap.empty) {
       console.log('Seeding ITs...');
-      const batch = writeBatch(db);
-      initialITs.forEach((it) => {
-        const docRef = doc(db, 'its', it.id);
-        batch.set(docRef, it);
-      });
-      await batch.commit();
+      for (const it of initialITs) {
+        await salvarDocumento('its', it, it.id);
+      }
     }
   } catch (error) {
     console.error('Error seeding initial data: ', error);
@@ -89,125 +72,60 @@ export async function seedDatabaseIfEmpty() {
 }
 
 // --- SECORS CRUD ---
-export async function dbSaveSector(sector: SectorData) {
-  const path = `sectors/${sector.id}`;
-  try {
-    await setDoc(doc(db, 'sectors', sector.id), sector);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function dbSaveSector(sector: SectorData, currentUser?: any) {
+  return await salvarDocumento('sectors', sector, sector.id, currentUser);
 }
 
-export async function dbDeleteSector(id: string) {
-  const path = `sectors/${id}`;
-  try {
-    await deleteDoc(doc(db, 'sectors', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+export async function dbDeleteSector(id: string, currentUser?: any) {
+  return await deletarDocumento('sectors', id);
 }
 
 // --- EMPLOYEES CRUD ---
-export async function dbSaveEmployee(employee: Employee) {
-  const path = `employees/${employee.id}`;
-  try {
-    await setDoc(doc(db, 'employees', employee.id), employee);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function dbSaveEmployee(employee: Employee, currentUser?: any) {
+  return await salvarDocumento('employees', employee, employee.id, currentUser);
 }
 
-export async function dbDeleteEmployee(id: string) {
-  const path = `employees/${id}`;
-  try {
-    await deleteDoc(doc(db, 'employees', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+export async function dbDeleteEmployee(id: string, currentUser?: any) {
+  return await deletarDocumento('employees', id);
 }
 
 // --- ATR CRUD ---
-export async function dbSaveATR(atr: ATR) {
-  const path = `atrs/${atr.id}`;
-  try {
-    await setDoc(doc(db, 'atrs', atr.id), atr);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function dbSaveATR(atr: ATR, currentUser?: any) {
+  return await salvarDocumento('atrs', atr, atr.id, currentUser);
 }
 
-export async function dbDeleteATR(id: string) {
-  const path = `atrs/${id}`;
-  try {
-    await deleteDoc(doc(db, 'atrs', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+export async function dbDeleteATR(id: string, currentUser?: any) {
+  return await deletarDocumento('atrs', id);
 }
 
 // --- POP CRUD ---
-export async function dbSavePOP(pop: POP) {
-  const path = `pops/${pop.id}`;
-  try {
-    await setDoc(doc(db, 'pops', pop.id), pop);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function dbSavePOP(pop: POP, currentUser?: any) {
+  return await salvarDocumento('pops', pop, pop.id, currentUser);
 }
 
-export async function dbDeletePOP(id: string) {
-  const path = `pops/${id}`;
-  try {
-    await deleteDoc(doc(db, 'pops', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+export async function dbDeletePOP(id: string, currentUser?: any) {
+  return await deletarDocumento('pops', id);
 }
 
 // --- IT CRUD ---
-export async function dbSaveIT(it: IT) {
-  const path = `its/${it.id}`;
-  try {
-    await setDoc(doc(db, 'its', it.id), it);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function dbSaveIT(it: IT, currentUser?: any) {
+  return await salvarDocumento('its', it, it.id, currentUser);
 }
 
-export async function dbDeleteIT(id: string) {
-  const path = `its/${id}`;
-  try {
-    await deleteDoc(doc(db, 'its', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+export async function dbDeleteIT(id: string, currentUser?: any) {
+  return await deletarDocumento('its', id);
 }
 
 // --- USERS CRUD ---
-export async function dbSaveUserAccount(user: UserAccount) {
-  const path = `users/${user.id}`;
-  try {
-    await setDoc(doc(db, 'users', user.id), user);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function dbSaveUserAccount(user: UserAccount, currentUser?: any) {
+  return await salvarDocumento('users', user, user.id, currentUser);
 }
 
-export async function dbDeleteUserAccount(id: string) {
-  const path = `users/${id}`;
-  try {
-    await deleteDoc(doc(db, 'users', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+export async function dbDeleteUserAccount(id: string, currentUser?: any) {
+  return await deletarDocumento('users', id);
 }
 
 // --- PERMISSIONS CRUD ---
-export async function dbSavePermissions(perms: ProfilePermissions) {
-  const path = 'permissions/default';
-  try {
-    await setDoc(doc(db, 'permissions', 'default'), perms);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function dbSavePermissions(perms: ProfilePermissions, currentUser?: any) {
+  return await salvarDocumento('permissions', perms, 'default', currentUser);
 }

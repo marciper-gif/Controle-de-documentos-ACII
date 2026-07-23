@@ -97,8 +97,14 @@ export interface UserAccount {
   username: string;
   name: string;
   password?: string;
+  passwordHash?: string;
   role: 'admin' | 'gestor' | 'colaborador' | 'lider';
   employeeId?: string;
+  status?: 'Ativo' | 'Inativo' | 'ativo' | 'inativo' | 'bloqueado';
+  accountStatus?: 'ativo' | 'inativo' | 'bloqueado' | 'Ativo' | 'Inativo';
+  primeiro_acesso?: boolean;
+  firstAccess?: boolean;
+  lastPasswordChange?: string;
 }
 
 export interface ProfilePermissionItem {

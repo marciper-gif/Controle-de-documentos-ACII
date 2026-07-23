@@ -113,12 +113,16 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "username": { "type": "string" },
+        "username": { "type": "string", "description": "CPF do funcionário (apenas números)" },
         "name": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "gestor", "colaborador", "lider"] },
-        "employeeId": { "type": "string" }
+        "employeeId": { "type": "string" },
+        "passwordHash": { "type": "string", "description": "Hash da senha" },
+        "firstAccess": { "type": "boolean", "description": "true = precisa trocar senha" },
+        "accountStatus": { "type": "string", "enum": ["ativo", "inativo", "bloqueado"] },
+        "lastPasswordChange": { "type": "string", "description": "Timestamp da última alteração" }
       },
-      "required": ["id", "username", "name", "role"]
+      "required": ["id", "username", "name", "role", "employeeId"]
     },
     "ProfilePermissions": {
       "title": "ProfilePermissions",

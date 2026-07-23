@@ -3,9 +3,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key, 
   CheckCircle, User, ShieldCheck, Eye, EyeOff, Sliders, Shield, Award, HelpCircle,
-  Briefcase, Layers, FileText, Plus, Search, Lock, History, Clock, ArrowUpRight
+  Briefcase, Layers, FileText, Plus, Search, Lock, History, Clock, ArrowUpRight,
+  RotateCcw, Power, Check
 } from 'lucide-react';
 import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT } from '../types';
+import { dbSaveUserAccount } from '../lib/firebaseSync';
 
 interface DocumentLogEntry {
   docId: string;
@@ -146,6 +148,8 @@ export default function AdminUsersModal({
   const [formPassword, setFormPassword] = useState('');
   const [formRole, setFormRole] = useState<'admin' | 'gestor' | 'colaborador' | 'lider'>('colaborador');
   const [formEmployeeId, setFormEmployeeId] = useState<string>('');
+  const [formStatus, setFormStatus] = useState<'Ativo' | 'Inativo'>('Ativo');
+  const [formPrimeiroAcesso, setFormPrimeiroAcesso] = useState<boolean>(false);
   const [autoLinkDocs, setAutoLinkDocs] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -226,6 +230,8 @@ export default function AdminUsersModal({
     setFormPassword(user.password || '');
     setFormRole(user.role);
     setFormEmployeeId(user.employeeId || '');
+    setFormStatus(user.status || 'Ativo');
+    setFormPrimeiroAcesso(user.primeiro_acesso ?? false);
     setError(null);
     setSuccess(null);
   };
@@ -238,9 +244,71 @@ export default function AdminUsersModal({
     setFormPassword('');
     setFormRole('colaborador');
     setFormEmployeeId('');
+    setFormStatus('Ativo');
+    setFormPrimeiroAcesso(false);
     setAutoLinkDocs(false);
     setError(null);
     setSuccess(null);
+  };
+
+  const getDefaultPasswordForName = (fullName: string): string => {
+    const firstName = fullName.trim().split(' ')[0] || 'usuario';
+    return firstName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '') || 'usuario';
+  };
+
+  const handleToggleUserStatus = (userId: string) => {
+    const updatedUsers = users.map(u => {
+      if (u.id === userId) {
+        const currentStatus = u.status || 'Ativo';
+        const isCurrentlyActive = currentStatus === 'Ativo' || currentStatus === 'ativo';
+        const newStatus = isCurrentlyActive ? 'Inativo' : 'Ativo';
+        const newAccountStatus = isCurrentlyActive ? 'inativo' : 'ativo';
+        return {
+          ...u,
+          status: newStatus as any,
+          accountStatus: newAccountStatus as any
+        };
+      }
+      return u;
+    });
+    onUpdateUsers(updatedUsers);
+    const targetUser = users.find(u => u.id === userId);
+    if (targetUser) {
+      const isNowActive = (targetUser.status || 'Ativo') !== 'Ativo';
+      setSuccess(`Status do usuário "${targetUser.name}" alterado para ${isNowActive ? 'ATIVO' : 'INATIVO'}.`);
+      setTimeout(() => setSuccess(null), 3000);
+    }
+  };
+
+  const handleResetUserPassword = (userId: string) => {
+    const targetUser = users.find(u => u.id === userId);
+    if (!targetUser) return;
+
+    const defaultPass = "123";
+
+    const updatedUsers = users.map(u => {
+      if (u.id === userId) {
+        const updatedAcc: UserAccount = {
+          ...u,
+          password: defaultPass,
+          passwordHash: defaultPass,
+          primeiro_acesso: true,
+          firstAccess: true,
+          lastPasswordChange: undefined
+        };
+        dbSaveUserAccount(updatedAcc);
+        return updatedAcc;
+      }
+      return u;
+    });
+
+    onUpdateUsers(updatedUsers);
+    setSuccess(`Senha do usuário "${targetUser.name}" resetada para "123"! O usuário deverá trocá-la no próximo acesso.`);
+    setTimeout(() => setSuccess(null), 6000);
   };
 
   const handleFormSubmit = (e: FormEvent) => {
@@ -248,8 +316,8 @@ export default function AdminUsersModal({
     setError(null);
     setSuccess(null);
 
-    if (!formName.trim() || !formUsername.trim() || !formPassword.trim()) {
-      setError('Todos os campos são obrigatórios.');
+    if (!formName.trim() || !formUsername.trim()) {
+      setError('Nome e Nome de Usuário são obrigatórios.');
       return;
     }
 
@@ -277,9 +345,14 @@ export default function AdminUsersModal({
             ...u,
             name: formName.trim(),
             username: formUsername.trim(),
-            password: formPassword,
+            password: formPassword || u.password,
+            passwordHash: formPassword || u.passwordHash,
             role: formRole,
-            employeeId: formEmployeeId || undefined
+            employeeId: formEmployeeId || undefined,
+            status: formStatus,
+            accountStatus: formStatus === 'Ativo' ? 'ativo' : 'inativo',
+            primeiro_acesso: formPrimeiroAcesso,
+            firstAccess: formPrimeiroAcesso
           };
         }
         return u;
@@ -287,16 +360,22 @@ export default function AdminUsersModal({
       setSuccess(`Usuário "${formName}" atualizado com sucesso!`);
     } else {
       // Adding new user
+      const initialPass = formPassword.trim() || getDefaultPasswordForName(formName);
       const newUser: UserAccount = {
         id: `user-${Date.now()}`,
         name: formName.trim(),
         username: formUsername.trim(),
-        password: formPassword,
+        password: initialPass,
+        passwordHash: initialPass,
         role: formRole,
-        employeeId: formEmployeeId || undefined
+        employeeId: formEmployeeId || undefined,
+        status: formStatus,
+        accountStatus: formStatus === 'Ativo' ? 'ativo' : 'inativo',
+        primeiro_acesso: true,
+        firstAccess: true
       };
       updatedList = [...users, newUser];
-      setSuccess(`Usuário "${formName}" cadastrado com sucesso!`);
+      setSuccess(`Usuário "${formName}" cadastrado com sucesso (Senha inicial: "${initialPass}")!`);
     }
 
     onUpdateUsers(updatedList);
@@ -347,7 +426,8 @@ export default function AdminUsersModal({
   };
 
   const handleCreateAccount = (emp: Employee) => {
-    const baseUsername = normalizeUsername(emp.name);
+    const cpfLimpo = (emp.cpf || "").replace(/\D/g, "");
+    const baseUsername = cpfLimpo.length > 0 ? cpfLimpo : normalizeUsername(emp.name);
     let finalUsername = baseUsername;
     let counter = 1;
     while (users.some(u => u.username.toLowerCase() === finalUsername.toLowerCase())) {
@@ -362,18 +442,25 @@ export default function AdminUsersModal({
                         roleLower.includes('supervisor') || 
                         roleLower.includes('lider');
     const defaultRole: 'colaborador' | 'lider' = isLeadership ? 'lider' : 'colaborador';
+    const defaultPassword = "123";
 
     const newAccount: UserAccount = {
-      id: `user-emp-${emp.id}`,
+      id: emp.id,
       username: finalUsername,
       name: emp.name,
-      password: '123',
+      password: defaultPassword,
+      passwordHash: defaultPassword,
       role: defaultRole,
-      employeeId: emp.id
+      employeeId: emp.id,
+      status: 'Ativo',
+      accountStatus: 'ativo',
+      primeiro_acesso: true,
+      firstAccess: true
     };
+    dbSaveUserAccount(newAccount);
     onUpdateUsers([...users, newAccount]);
-    setSuccess(`Conta criada para ${emp.name} com senha "123"!`);
-    setTimeout(() => setSuccess(null), 3000);
+    setSuccess(`Conta de acesso criada para ${emp.name}! Login: ${finalUsername}, Senha inicial: "123"`);
+    setTimeout(() => setSuccess(null), 5000);
   };
 
   const handleUpdatePassword = (employeeId: string, newPassword: string) => {
@@ -538,7 +625,7 @@ export default function AdminUsersModal({
                 <Sliders className="w-5 h-5 text-emerald-600 shrink-0" />
                 <div>
                   <span className="font-extrabold text-emerald-700 dark:text-emerald-450 block mb-0.5">Quadro de Controle de Acessos e Conteúdos:</span>
-                  Como Administrador Geral, gerencie abaixo as senhas de entrada de cada colaborador e determine exatamente quais Atribuições (ATRs), Processos (POPs) e Instruções (ITs) eles podem visualizar. Alterações de senhas e vínculos de documentos são atualizados instantaneamente.
+                  Como Administrador Geral ou Gestor, gerencie abaixo o login e senha de entrada de cada colaborador e determine exatamente quais Atribuições (ATRs), Processos (POPs) e Instruções (ITs) eles podem visualizar. Alterações de logins, senhas e vínculos de documentos são atualizadas instantaneamente.
                 </div>
               </div>
 
@@ -1447,7 +1534,9 @@ export default function AdminUsersModal({
                     <th className="px-4 py-3">Funcionário / Nome</th>
                     <th className="px-4 py-3">Usuário Login</th>
                     <th className="px-4 py-3">Senha de Entrada</th>
+                    <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Permissão</th>
+                    <th className="px-4 py-3">Última Troca de Senha</th>
                     <th className="px-4 py-3 text-right">Ações</th>
                   </tr>
                 </thead>
@@ -1455,6 +1544,8 @@ export default function AdminUsersModal({
                   {users.map(u => {
                     const isSelf = u.id === currentUser.id;
                     const isPassVisible = visiblePasswords[u.id] || false;
+                    const isUserActive = (u.status || 'Ativo') === 'Ativo' || (u.accountStatus || 'ativo') === 'ativo';
+                    const isFirstAccessPending = u.primeiro_acesso === true || u.firstAccess === true;
 
                     return (
                       <tr key={u.id} className="hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition-colors">
@@ -1501,6 +1592,24 @@ export default function AdminUsersModal({
                           </div>
                         </td>
                         <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => !isSelf && handleToggleUserStatus(u.id)}
+                            disabled={isSelf}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider transition-all border ${
+                              isSelf ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:scale-105'
+                            } ${
+                              isUserActive 
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' 
+                                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                            }`}
+                            title={isSelf ? "Não é possível inativar seu próprio usuário logado" : "Clique para alterar o status da conta"}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${isUserActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                            <span>{isUserActive ? 'Ativo' : 'Inativo'}</span>
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
                           {u.role === 'admin' ? (
                             <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                               <ShieldCheck className="w-3 h-3" />
@@ -1518,8 +1627,31 @@ export default function AdminUsersModal({
                             </span>
                           )}
                         </td>
+                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-[11px]">
+                          {isFirstAccessPending ? (
+                            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md text-[9px] uppercase">
+                              <Clock className="w-3 h-3 shrink-0" />
+                              1º Acesso Pendente
+                            </span>
+                          ) : u.lastPasswordChange ? (
+                            <span className="font-mono text-slate-600 dark:text-slate-300">
+                              {u.lastPasswordChange}
+                            </span>
+                          ) : (
+                            <span className="italic text-slate-400 text-[10px]">
+                              Não alterada pelo usuário
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleResetUserPassword(u.id)}
+                              className="p-1.5 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 rounded transition-all cursor-pointer"
+                              title="Resetar senha para valor inicial (primeiro nome) e forçar troca no próximo login"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               onClick={() => handleStartEdit(u)}
                               className="p-1.5 text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-slate-200/60 dark:hover:bg-slate-850 rounded transition-all cursor-pointer"

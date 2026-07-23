@@ -5,7 +5,9 @@ import {
   Briefcase, Layers, User, FileText, Check, X, ShieldAlert, 
   MapPin, Clipboard, FileCheck, Info, UserCheck, AlertCircle, Home
 } from 'lucide-react';
-import { Employee, SectorData, POP, ATR, IT } from '../types';
+import { Employee, SectorData, POP, ATR, IT, UserAccount } from '../types';
+import { dbSaveUserAccount } from '../lib/firebaseSync';
+import { hashPassword } from '../lib/userManagement';
 
 interface EmployeeManagerProps {
   employees: Employee[];
@@ -16,6 +18,8 @@ interface EmployeeManagerProps {
   its: IT[];
   onViewDoc: (id: string, type: 'pop' | 'atr' | 'it') => void;
   canEditEmployees?: boolean;
+  users?: UserAccount[];
+  setUsers?: React.Dispatch<React.SetStateAction<UserAccount[]>>;
 }
 
 export default function EmployeeManager({
@@ -26,7 +30,9 @@ export default function EmployeeManager({
   atrs,
   its,
   onViewDoc,
-  canEditEmployees = true
+  canEditEmployees = true,
+  users = [],
+  setUsers
 }: EmployeeManagerProps) {
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -104,15 +110,17 @@ export default function EmployeeManager({
   };
 
   // Form submit handler
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formRole.trim()) {
       alert('Nome e Cargo são obrigatórios!');
       return;
     }
 
+    const cpfLimpo = formCpf.replace(/\D/g, "");
+
     if (editingEmployee) {
-      // Update
+      // Update Employee
       const updated: Employee = {
         ...editingEmployee,
         name: formName,
@@ -133,10 +141,28 @@ export default function EmployeeManager({
       if (selectedEmployee?.id === editingEmployee.id) {
         setSelectedEmployee(updated);
       }
+
+      // Sync name / CPF if user account exists
+      if (setUsers) {
+        setUsers(prev => prev.map(u => {
+          if (u.employeeId === editingEmployee.id || u.id === editingEmployee.id) {
+            const newUsername = cpfLimpo.length > 0 ? cpfLimpo : u.username;
+            const updatedUserAcc: UserAccount = {
+              ...u,
+              name: formName,
+              username: newUsername
+            };
+            dbSaveUserAccount(updatedUserAcc);
+            return updatedUserAcc;
+          }
+          return u;
+        }));
+      }
     } else {
-      // Create
+      // Create Employee
+      const newEmpId = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
       const newEmp: Employee = {
-        id: `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
+        id: newEmpId,
         name: formName,
         email: formEmail,
         phone: formPhone,
@@ -152,6 +178,32 @@ export default function EmployeeManager({
         associatedITs: formAssociatedITs
       };
       setEmployees(prev => [newEmp, ...prev]);
+
+      // Automatically create UserAccount with CPF as login and "123" as password
+      const usernameLogin = cpfLimpo.length > 0 
+        ? cpfLimpo 
+        : (formRegistration || newEmpId.toLowerCase());
+      
+      const passHash = await hashPassword('123');
+
+      const newUserAccount: UserAccount = {
+        id: newEmpId,
+        username: usernameLogin,
+        name: formName,
+        password: '123',
+        passwordHash: passHash,
+        role: 'colaborador',
+        employeeId: newEmpId,
+        firstAccess: true,
+        primeiro_acesso: true,
+        accountStatus: 'ativo',
+        status: 'Ativo'
+      };
+
+      if (setUsers) {
+        setUsers(prev => [newUserAccount, ...prev.filter(u => u.id !== newEmpId)]);
+      }
+      dbSaveUserAccount(newUserAccount);
     }
     setIsFormOpen(false);
   };
