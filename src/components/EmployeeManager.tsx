@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { Employee, SectorData, POP, ATR, IT, UserAccount } from '../types';
 import { dbSaveUserAccount } from '../lib/firebaseSync';
-import { hashPassword } from '../lib/userManagement';
+import { hashPassword, getDefaultInitialPassword } from '../lib/userManagement';
 
 interface EmployeeManagerProps {
   employees: Employee[];
@@ -112,8 +112,10 @@ export default function EmployeeManager({
   // Form submit handler
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formRole.trim()) {
-      alert('Nome e Cargo são obrigatórios!');
+
+    // Required fields check: Name, CPF, Phone, and Email
+    if (!formName.trim() || !formCpf.trim() || !formPhone.trim() || !formEmail.trim()) {
+      alert('Nome Completo, CPF, Telefone/WhatsApp e E-mail Corporativo são campos de preenchimento obrigatório!');
       return;
     }
 
@@ -127,7 +129,7 @@ export default function EmployeeManager({
         email: formEmail,
         phone: formPhone,
         sector: formSector,
-        role: formRole,
+        role: formRole || 'Colaborador',
         admissionDate: formAdmissionDate,
         status: formStatus,
         cpf: formCpf,
@@ -167,7 +169,7 @@ export default function EmployeeManager({
         email: formEmail,
         phone: formPhone,
         sector: formSector,
-        role: formRole,
+        role: formRole || 'Colaborador',
         admissionDate: formAdmissionDate,
         status: formStatus,
         cpf: formCpf,
@@ -179,18 +181,19 @@ export default function EmployeeManager({
       };
       setEmployees(prev => [newEmp, ...prev]);
 
-      // Automatically create UserAccount with CPF as login and "123" as password
+      // Automatically create UserAccount with CPF as login and [FirstName]123 / [CPF]123 as default initial password
       const usernameLogin = cpfLimpo.length > 0 
         ? cpfLimpo 
         : (formRegistration || newEmpId.toLowerCase());
       
-      const passHash = await hashPassword('123');
+      const defaultPassword = getDefaultInitialPassword(formName, formCpf);
+      const passHash = await hashPassword(defaultPassword);
 
       const newUserAccount: UserAccount = {
         id: newEmpId,
         username: usernameLogin,
         name: formName,
-        password: '123',
+        password: defaultPassword,
         passwordHash: passHash,
         role: 'colaborador',
         employeeId: newEmpId,
@@ -494,9 +497,10 @@ export default function EmployeeManager({
 
                   {/* CPF */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">CPF (Opcional)</label>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">CPF (Tax ID) *</label>
                     <input
                       type="text"
+                      required
                       placeholder="Ex: 000.000.000-00"
                       value={formCpf}
                       onChange={e => setFormCpf(e.target.value)}
@@ -520,9 +524,10 @@ export default function EmployeeManager({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Email */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">E-mail Corporativo</label>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">E-mail Corporativo *</label>
                     <input
                       type="email"
+                      required
                       placeholder="Ex: colaborador@acii.org.br"
                       value={formEmail}
                       onChange={e => setFormEmail(e.target.value)}
@@ -532,9 +537,10 @@ export default function EmployeeManager({
 
                   {/* Telefone */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">WhatsApp / Fone</label>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">WhatsApp / Fone *</label>
                     <input
                       type="text"
+                      required
                       placeholder="Ex: (99) 98122-3344"
                       value={formPhone}
                       onChange={e => setFormPhone(e.target.value)}

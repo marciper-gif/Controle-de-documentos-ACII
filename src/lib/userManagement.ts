@@ -14,6 +14,23 @@ import { salvarDocumento } from "../config/firebase";
 import { UserAccount } from "../types";
 
 /**
+ * Funçao para gerar a senha inicial padrão:
+ * [Primeiro Nome]123 ou [CPF]123 (ex: John123 ou 12345678900123)
+ */
+export function getDefaultInitialPassword(name?: string, cpf?: string): string {
+  const firstName = (name || '').trim().split(' ')[0];
+  if (firstName && firstName.length > 0) {
+    const formatted = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+    return `${formatted}123`;
+  }
+  const cleanCpf = (cpf || '').replace(/\D/g, '');
+  if (cleanCpf.length > 0) {
+    return `${cleanCpf}123`;
+  }
+  return '123';
+}
+
+/**
  * Funçao para gerar hash SHA-256 no navegador usando crypto.subtle
  */
 export async function hashPassword(password: string): Promise<string> {
@@ -64,8 +81,8 @@ export async function criarFuncionarioComAcesso(dadosFuncionario: any) {
       ? cpfLimpo 
       : (dadosFuncionario.registrationNumber || finalId.toLowerCase().replace(/[^a-z0-9]/g, ""));
 
-    // 3. Criar conta de acesso automática
-    const senhaPadrao = "123";
+    // 3. Criar conta de acesso automática com senha padrão [PrimeiroNome]123 ou [CPF]123
+    const senhaPadrao = getDefaultInitialPassword(dadosFuncionario.name, cpfLimpo);
     const passwordHash = await hashPassword(senhaPadrao);
     
     const userAccount: UserAccount = {

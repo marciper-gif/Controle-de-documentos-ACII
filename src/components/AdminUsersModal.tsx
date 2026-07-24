@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT } from '../types';
 import { dbSaveUserAccount } from '../lib/firebaseSync';
+import { getDefaultInitialPassword } from '../lib/userManagement';
 
 interface DocumentLogEntry {
   docId: string;
@@ -288,7 +289,7 @@ export default function AdminUsersModal({
     const targetUser = users.find(u => u.id === userId);
     if (!targetUser) return;
 
-    const defaultPass = "123";
+    const defaultPass = getDefaultInitialPassword(targetUser.name, targetUser.username);
 
     const updatedUsers = users.map(u => {
       if (u.id === userId) {
@@ -307,7 +308,7 @@ export default function AdminUsersModal({
     });
 
     onUpdateUsers(updatedUsers);
-    setSuccess(`Senha do usuário "${targetUser.name}" resetada para "123"! O usuário deverá trocá-la no próximo acesso.`);
+    setSuccess(`Senha do usuário "${targetUser.name}" resetada para "${defaultPass}"! O usuário deverá trocá-la no próximo acesso.`);
     setTimeout(() => setSuccess(null), 6000);
   };
 
@@ -442,7 +443,7 @@ export default function AdminUsersModal({
                         roleLower.includes('supervisor') || 
                         roleLower.includes('lider');
     const defaultRole: 'colaborador' | 'lider' = isLeadership ? 'lider' : 'colaborador';
-    const defaultPassword = "123";
+    const defaultPassword = getDefaultInitialPassword(emp.name, emp.cpf);
 
     const newAccount: UserAccount = {
       id: emp.id,
@@ -459,7 +460,7 @@ export default function AdminUsersModal({
     };
     dbSaveUserAccount(newAccount);
     onUpdateUsers([...users, newAccount]);
-    setSuccess(`Conta de acesso criada para ${emp.name}! Login: ${finalUsername}, Senha inicial: "123"`);
+    setSuccess(`Conta de acesso criada para ${emp.name}! Login: ${finalUsername}, Senha inicial: "${defaultPassword}"`);
     setTimeout(() => setSuccess(null), 5000);
   };
 

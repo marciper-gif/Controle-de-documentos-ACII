@@ -559,6 +559,14 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem('ms-employees', JSON.stringify(employees));
+  }, [employees]);
+
+  useEffect(() => {
+    localStorage.setItem('ms-sectors', JSON.stringify(sectors));
+  }, [sectors]);
+
 
   const currentUserEmployee = useMemo(() => {
     if (!currentUser || !currentUser.employeeId) return null;
@@ -648,6 +656,9 @@ export default function App() {
   useEffect(() => {
     if (!db) return;
 
+    // Seed database if empty on load
+    seedDatabaseIfEmpty();
+
     // Real-time Sector subscription
     const unsubSectors = onSnapshot(collection(db, 'sectors'), (snapshot) => {
       const list: SectorData[] = [];
@@ -655,7 +666,12 @@ export default function App() {
         list.push(doc.data() as SectorData);
       });
       if (list.length > 0) {
-        rawSetSectors(list);
+        rawSetSectors(prev => {
+          const map = new Map<string, SectorData>();
+          prev.forEach(item => map.set(item.id, item));
+          list.forEach(item => map.set(item.id, item));
+          return Array.from(map.values());
+        });
       }
     }, (err) => {
       console.warn("Firestore snapshot error (sectors):", err);
@@ -668,7 +684,12 @@ export default function App() {
         list.push(doc.data() as Employee);
       });
       if (list.length > 0) {
-        rawSetEmployees(list);
+        rawSetEmployees(prev => {
+          const map = new Map<string, Employee>();
+          prev.forEach(item => map.set(item.id, item));
+          list.forEach(item => map.set(item.id, item));
+          return Array.from(map.values());
+        });
       }
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);
@@ -681,7 +702,12 @@ export default function App() {
         list.push(doc.data() as ATR);
       });
       if (list.length > 0) {
-        rawSetATRs(list);
+        rawSetATRs(prev => {
+          const map = new Map<string, ATR>();
+          prev.forEach(item => map.set(item.id, item));
+          list.forEach(item => map.set(item.id, item));
+          return Array.from(map.values());
+        });
       }
     }, (err) => {
       console.warn("Firestore snapshot error (atrs):", err);
@@ -694,7 +720,12 @@ export default function App() {
         list.push(doc.data() as POP);
       });
       if (list.length > 0) {
-        rawSetPOPs(list);
+        rawSetPOPs(prev => {
+          const map = new Map<string, POP>();
+          prev.forEach(item => map.set(item.id, item));
+          list.forEach(item => map.set(item.id, item));
+          return Array.from(map.values());
+        });
       }
     }, (err) => {
       console.warn("Firestore snapshot error (pops):", err);
@@ -707,7 +738,12 @@ export default function App() {
         list.push(doc.data() as IT);
       });
       if (list.length > 0) {
-        rawSetITs(list);
+        rawSetITs(prev => {
+          const map = new Map<string, IT>();
+          prev.forEach(item => map.set(item.id, item));
+          list.forEach(item => map.set(item.id, item));
+          return Array.from(map.values());
+        });
       }
     }, (err) => {
       console.warn("Firestore snapshot error (its):", err);
