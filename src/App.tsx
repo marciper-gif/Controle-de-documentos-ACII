@@ -252,25 +252,25 @@ export default function App() {
     const saved = localStorage.getItem('ms-profile-permissions');
     const defaultPermissions: ProfilePermissions = {
       colaborador: {
-        canSeeAllDocs: false,
-        canSeeEmployees: false,
-        canSeeSectors: false,
+        canSeeAllDocs: true,
+        canSeeEmployees: true,
+        canSeeSectors: true,
         canEditEmployees: false,
         canEditDocs: false
       },
       gestor: {
-        canSeeAllDocs: false,
+        canSeeAllDocs: true,
         canSeeEmployees: true,
         canSeeSectors: true,
         canEditEmployees: true,
-        canEditDocs: false
+        canEditDocs: true
       },
       lider: {
-        canSeeAllDocs: false,
+        canSeeAllDocs: true,
         canSeeEmployees: true,
         canSeeSectors: true,
         canEditEmployees: true,
-        canEditDocs: false
+        canEditDocs: true
       }
     };
     if (!saved) {
@@ -281,6 +281,12 @@ export default function App() {
       const parsed = JSON.parse(saved);
       if (!parsed.gestor) {
         parsed.gestor = parsed.lider || defaultPermissions.gestor;
+      }
+      // Ensure visibility flags are defaulted to true if undefined
+      if (parsed.colaborador) {
+        if (parsed.colaborador.canSeeAllDocs === undefined) parsed.colaborador.canSeeAllDocs = true;
+        if (parsed.colaborador.canSeeSectors === undefined) parsed.colaborador.canSeeSectors = true;
+        if (parsed.colaborador.canSeeEmployees === undefined) parsed.colaborador.canSeeEmployees = true;
       }
       return parsed;
     } catch (e) {
@@ -424,7 +430,13 @@ export default function App() {
     if (!saved) return initialPOPs;
     try {
       const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialPOPs;
+      if (!Array.isArray(parsed) || parsed.length === 0) return initialPOPs;
+      const initialMap = new Map<string, POP>();
+      initialPOPs.forEach(p => initialMap.set(p.id, p));
+      parsed.forEach((p: POP) => {
+        if (p && p.id) initialMap.set(p.id, p);
+      });
+      return Array.from(initialMap.values());
     } catch (e) {
       return initialPOPs;
     }
@@ -448,7 +460,13 @@ export default function App() {
     if (!saved) return initialITs;
     try {
       const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialITs;
+      if (!Array.isArray(parsed) || parsed.length === 0) return initialITs;
+      const initialMap = new Map<string, IT>();
+      initialITs.forEach(i => initialMap.set(i.id, i));
+      parsed.forEach((i: IT) => {
+        if (i && i.id) initialMap.set(i.id, i);
+      });
+      return Array.from(initialMap.values());
     } catch (e) {
       return initialITs;
     }
@@ -485,7 +503,22 @@ export default function App() {
     const saved = localStorage.getItem('ms-sectors');
     if (!saved) return initialSectors;
     try {
-      return JSON.parse(saved);
+      const parsed: SectorData[] = JSON.parse(saved);
+      const map = new Map<string, SectorData>();
+      initialSectors.forEach(s => map.set(s.id, s));
+      parsed.forEach(s => {
+        const matchingInit = initialSectors.find(i => i.id === s.id || i.name.toLowerCase() === s.name.toLowerCase());
+        if (matchingInit) {
+          map.set(matchingInit.id, {
+            ...s,
+            id: matchingInit.id,
+            description: s.description && s.description.length > matchingInit.description.length ? s.description : matchingInit.description
+          });
+        } else {
+          map.set(s.id, s);
+        }
+      });
+      return Array.from(map.values());
     } catch (e) {
       return initialSectors;
     }
@@ -634,10 +667,12 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as SectorData);
       });
-      if (list.length > 0) {
-        rawSetSectors(list);
-        localStorage.setItem('ms-sectors', JSON.stringify(list));
-      }
+      const map = new Map<string, SectorData>();
+      initialSectors.forEach(s => map.set(s.id, s));
+      list.forEach(s => { if (s && s.id) map.set(s.id, s); });
+      const merged = Array.from(map.values());
+      rawSetSectors(merged);
+      localStorage.setItem('ms-sectors', JSON.stringify(merged));
     }, (err) => {
       console.warn("Firestore snapshot error (sectors):", err);
     });
@@ -648,10 +683,12 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as Employee);
       });
-      if (list.length > 0) {
-        rawSetEmployees(list);
-        localStorage.setItem('ms-employees', JSON.stringify(list));
-      }
+      const map = new Map<string, Employee>();
+      initialEmployees.forEach(e => map.set(e.id, e));
+      list.forEach(e => { if (e && e.id) map.set(e.id, e); });
+      const merged = Array.from(map.values());
+      rawSetEmployees(merged);
+      localStorage.setItem('ms-employees', JSON.stringify(merged));
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);
     });
@@ -662,10 +699,12 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as ATR);
       });
-      if (list.length > 0) {
-        rawSetATRs(list);
-        localStorage.setItem('ms-atrs', JSON.stringify(list));
-      }
+      const map = new Map<string, ATR>();
+      initialATRs.forEach(a => map.set(a.id, a));
+      list.forEach(a => { if (a && a.id) map.set(a.id, a); });
+      const merged = Array.from(map.values());
+      rawSetATRs(merged);
+      localStorage.setItem('ms-atrs', JSON.stringify(merged));
     }, (err) => {
       console.warn("Firestore snapshot error (atrs):", err);
     });
@@ -676,10 +715,12 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as POP);
       });
-      if (list.length > 0) {
-        rawSetPOPs(list);
-        localStorage.setItem('ms-pops', JSON.stringify(list));
-      }
+      const map = new Map<string, POP>();
+      initialPOPs.forEach(p => map.set(p.id, p));
+      list.forEach(p => { if (p && p.id) map.set(p.id, p); });
+      const merged = Array.from(map.values());
+      rawSetPOPs(merged);
+      localStorage.setItem('ms-pops', JSON.stringify(merged));
     }, (err) => {
       console.warn("Firestore snapshot error (pops):", err);
     });
@@ -690,10 +731,12 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as IT);
       });
-      if (list.length > 0) {
-        rawSetITs(list);
-        localStorage.setItem('ms-its', JSON.stringify(list));
-      }
+      const map = new Map<string, IT>();
+      initialITs.forEach(i => map.set(i.id, i));
+      list.forEach(i => { if (i && i.id) map.set(i.id, i); });
+      const merged = Array.from(map.values());
+      rawSetITs(merged);
+      localStorage.setItem('ms-its', JSON.stringify(merged));
     }, (err) => {
       console.warn("Firestore snapshot error (its):", err);
     });
@@ -752,8 +795,12 @@ export default function App() {
     if (!currentUser) return false;
     if (currentUser.role === 'admin') return true;
 
+    const roleKey = currentUser.role === 'lider' ? 'gestor' : currentUser.role;
+    const perms = (profilePermissions as any)[roleKey];
+    if (perms?.canSeeAllDocs) return true;
+
     const matchedEmployee = employees.find(emp => emp.id === currentUser.employeeId);
-    if (!matchedEmployee) return false;
+    if (!matchedEmployee) return perms?.canSeeAllDocs ?? true;
 
     // 1. Is it explicitly associated with the employee?
     let isExplicitlyAssociated = false;
@@ -776,7 +823,7 @@ export default function App() {
     }
 
     return false;
-  }, [currentUser, employees]);
+  }, [currentUser, employees, profilePermissions]);
 
   // Save sectors and employees changes to LocalStorage
   useEffect(() => {

@@ -24,47 +24,54 @@ import { hashPassword } from './userManagement';
  */
 export async function seedDatabaseIfEmpty() {
   try {
-    // Check if sectors are empty
+    // Check if sectors are empty or missing any default sector
     const sectorsSnap = await getDocs(collection(db, 'sectors'));
     if (sectorsSnap.empty) {
       console.log('Seeding sectors...');
       for (const sector of initialSectors) {
         await salvarDocumento('sectors', sector, sector.id);
       }
+    } else {
+      const existingDocIds = new Set(sectorsSnap.docs.map(d => d.id));
+      for (const sector of initialSectors) {
+        if (!existingDocIds.has(sector.id)) {
+          await salvarDocumento('sectors', sector, sector.id);
+        }
+      }
     }
 
-    // Check if employees are empty
+    // Check if employees are missing any default employee
     const employeesSnap = await getDocs(collection(db, 'employees'));
-    if (employeesSnap.empty) {
-      console.log('Seeding employees...');
-      for (const emp of initialEmployees) {
+    const existingEmployeeIds = new Set(employeesSnap.docs.map(d => d.id));
+    for (const emp of initialEmployees) {
+      if (!existingEmployeeIds.has(emp.id)) {
         await salvarDocumento('employees', emp, emp.id);
       }
     }
 
-    // Check if ATRs are empty
+    // Check if ATRs are missing any default ATR
     const atrsSnap = await getDocs(collection(db, 'atrs'));
-    if (atrsSnap.empty) {
-      console.log('Seeding ATRs...');
-      for (const atr of initialATRs) {
+    const existingAtrIds = new Set(atrsSnap.docs.map(d => d.id));
+    for (const atr of initialATRs) {
+      if (!existingAtrIds.has(atr.id)) {
         await salvarDocumento('atrs', atr, atr.id);
       }
     }
 
-    // Check if POPs are empty
+    // Check if POPs are missing any default POP
     const popsSnap = await getDocs(collection(db, 'pops'));
-    if (popsSnap.empty) {
-      console.log('Seeding POPs...');
-      for (const pop of initialPOPs) {
+    const existingPopIds = new Set(popsSnap.docs.map(d => d.id));
+    for (const pop of initialPOPs) {
+      if (!existingPopIds.has(pop.id)) {
         await salvarDocumento('pops', pop, pop.id);
       }
     }
 
-    // Check if ITs are empty
+    // Check if ITs are missing any default IT
     const itsSnap = await getDocs(collection(db, 'its'));
-    if (itsSnap.empty) {
-      console.log('Seeding ITs...');
-      for (const it of initialITs) {
+    const existingItIds = new Set(itsSnap.docs.map(d => d.id));
+    for (const it of initialITs) {
+      if (!existingItIds.has(it.id)) {
         await salvarDocumento('its', it, it.id);
       }
     }
