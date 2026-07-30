@@ -226,11 +226,6 @@ export default function App() {
   const setUsers = useCallback((val: React.SetStateAction<UserAccount[]>) => {
     rawSetUsers((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      prev.forEach(item => {
-        if (!computed.some(c => c.id === item.id)) {
-          dbDeleteUserAccount(item.id);
-        }
-      });
       computed.forEach(item => {
         const original = prev.find(p => p.id === item.id);
         if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
@@ -411,11 +406,6 @@ export default function App() {
   const setATRs = useCallback((val: React.SetStateAction<ATR[]>) => {
     rawSetATRs((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      prev.forEach(item => {
-        if (!computed.some(c => c.id === item.id)) {
-          dbDeleteATR(item.id);
-        }
-      });
       computed.forEach(item => {
         const original = prev.find(p => p.id === item.id);
         if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
@@ -431,9 +421,7 @@ export default function App() {
     if (!saved) return initialPOPs;
     try {
       const parsed = JSON.parse(saved);
-      const initialIds = new Set(initialPOPs.map(x => x.id));
-      const customPops = parsed.filter((x: any) => !initialIds.has(x.id));
-      return [...initialPOPs, ...customPops];
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialPOPs;
     } catch (e) {
       return initialPOPs;
     }
@@ -442,11 +430,6 @@ export default function App() {
   const setPOPs = useCallback((val: React.SetStateAction<POP[]>) => {
     rawSetPOPs((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      prev.forEach(item => {
-        if (!computed.some(c => c.id === item.id)) {
-          dbDeletePOP(item.id);
-        }
-      });
       computed.forEach(item => {
         const original = prev.find(p => p.id === item.id);
         if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
@@ -462,9 +445,7 @@ export default function App() {
     if (!saved) return initialITs;
     try {
       const parsed = JSON.parse(saved);
-      const initialIds = new Set(initialITs.map(x => x.id));
-      const customIts = parsed.filter((x: any) => !initialIds.has(x.id));
-      return [...initialITs, ...customIts];
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialITs;
     } catch (e) {
       return initialITs;
     }
@@ -473,11 +454,6 @@ export default function App() {
   const setITs = useCallback((val: React.SetStateAction<IT[]>) => {
     rawSetITs((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      prev.forEach(item => {
-        if (!computed.some(c => c.id === item.id)) {
-          dbDeleteIT(item.id);
-        }
-      });
       computed.forEach(item => {
         const original = prev.find(p => p.id === item.id);
         if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
@@ -515,11 +491,6 @@ export default function App() {
   const setSectors = useCallback((val: React.SetStateAction<SectorData[]>) => {
     rawSetSectors((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      prev.forEach(item => {
-        if (!computed.some(c => c.id === item.id)) {
-          dbDeleteSector(item.id);
-        }
-      });
       computed.forEach(item => {
         const original = prev.find(p => p.id === item.id);
         if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
@@ -544,11 +515,6 @@ export default function App() {
   const setEmployees = useCallback((val: React.SetStateAction<Employee[]>) => {
     rawSetEmployees((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      prev.forEach(item => {
-        if (!computed.some(c => c.id === item.id)) {
-          dbDeleteEmployee(item.id);
-        }
-      });
       computed.forEach(item => {
         const original = prev.find(p => p.id === item.id);
         if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
@@ -666,12 +632,8 @@ export default function App() {
         list.push(doc.data() as SectorData);
       });
       if (list.length > 0) {
-        rawSetSectors(prev => {
-          const map = new Map<string, SectorData>();
-          prev.forEach(item => map.set(item.id, item));
-          list.forEach(item => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        rawSetSectors(list);
+        localStorage.setItem('ms-sectors', JSON.stringify(list));
       }
     }, (err) => {
       console.warn("Firestore snapshot error (sectors):", err);
@@ -684,12 +646,8 @@ export default function App() {
         list.push(doc.data() as Employee);
       });
       if (list.length > 0) {
-        rawSetEmployees(prev => {
-          const map = new Map<string, Employee>();
-          prev.forEach(item => map.set(item.id, item));
-          list.forEach(item => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        rawSetEmployees(list);
+        localStorage.setItem('ms-employees', JSON.stringify(list));
       }
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);
@@ -702,12 +660,8 @@ export default function App() {
         list.push(doc.data() as ATR);
       });
       if (list.length > 0) {
-        rawSetATRs(prev => {
-          const map = new Map<string, ATR>();
-          prev.forEach(item => map.set(item.id, item));
-          list.forEach(item => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        rawSetATRs(list);
+        localStorage.setItem('ms-atrs', JSON.stringify(list));
       }
     }, (err) => {
       console.warn("Firestore snapshot error (atrs):", err);
@@ -720,12 +674,8 @@ export default function App() {
         list.push(doc.data() as POP);
       });
       if (list.length > 0) {
-        rawSetPOPs(prev => {
-          const map = new Map<string, POP>();
-          prev.forEach(item => map.set(item.id, item));
-          list.forEach(item => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        rawSetPOPs(list);
+        localStorage.setItem('ms-pops', JSON.stringify(list));
       }
     }, (err) => {
       console.warn("Firestore snapshot error (pops):", err);
@@ -738,12 +688,8 @@ export default function App() {
         list.push(doc.data() as IT);
       });
       if (list.length > 0) {
-        rawSetITs(prev => {
-          const map = new Map<string, IT>();
-          prev.forEach(item => map.set(item.id, item));
-          list.forEach(item => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        rawSetITs(list);
+        localStorage.setItem('ms-its', JSON.stringify(list));
       }
     }, (err) => {
       console.warn("Firestore snapshot error (its):", err);
@@ -756,18 +702,17 @@ export default function App() {
         list.push(doc.data() as UserAccount);
       });
       if (list.length > 0) {
-        // Merge Google and local accounts
         rawSetUsers(prev => {
-          const merged = [...prev];
-          list.forEach(item => {
-            const index = merged.findIndex(u => u.id === item.id);
-            if (index !== -1) {
-              merged[index] = item;
-            } else {
-              merged.push(item);
+          const map = new Map<string, UserAccount>();
+          list.forEach(item => map.set(item.id, item));
+          prev.forEach(item => {
+            if (!item.password && !map.has(item.id)) {
+              map.set(item.id, item);
             }
           });
-          return merged;
+          const result = Array.from(map.values());
+          localStorage.setItem('ms-users', JSON.stringify(result));
+          return result;
         });
       }
     }, (err) => {
@@ -1072,6 +1017,7 @@ export default function App() {
   const handleDeleteDoc = (id: string, type: 'pop' | 'atr' | 'it') => {
     if (confirm(`Deseja realmente excluir o documento ${id}?`)) {
       if (type === 'atr') {
+        dbDeleteATR(id);
         const filtered = atrs.filter(a => a.id !== id);
         setATRs(filtered);
         if (selectedDocId === id) {
@@ -1080,6 +1026,7 @@ export default function App() {
           setSelectedDocType(next ? (next.id.startsWith('POP-') ? 'pop' : next.id.startsWith('IT-') ? 'it' : 'atr') : 'pop');
         }
       } else if (type === 'pop') {
+        dbDeletePOP(id);
         const filtered = pops.filter(p => p.id !== id);
         setPOPs(filtered);
         if (selectedDocId === id) {
@@ -1088,6 +1035,7 @@ export default function App() {
           setSelectedDocType(next ? (next.id.startsWith('POP-') ? 'pop' : next.id.startsWith('IT-') ? 'it' : 'atr') : 'pop');
         }
       } else {
+        dbDeleteIT(id);
         const filtered = its.filter(i => i.id !== id);
         setITs(filtered);
         if (selectedDocId === id) {

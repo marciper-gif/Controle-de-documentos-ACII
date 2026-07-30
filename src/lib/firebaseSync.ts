@@ -16,6 +16,8 @@ import { initialATRs } from '../data/atrs';
 import { initialPOPs } from '../data/pops';
 import { initialITs } from '../data/its';
 
+import { hashPassword } from './userManagement';
+
 /**
  * Seeds the database if the collections are empty.
  * Ensures the first-time Firebase user has the default ACII workspace.
@@ -64,6 +66,21 @@ export async function seedDatabaseIfEmpty() {
       console.log('Seeding ITs...');
       for (const it of initialITs) {
         await salvarDocumento('its', it, it.id);
+      }
+    }
+
+    // Check if users are empty
+    const usersSnap = await getDocs(collection(db, 'users'));
+    if (usersSnap.empty) {
+      console.log('Seeding default users...');
+      const adminHash = await hashPassword('admin');
+      const collabHash = await hashPassword('123');
+      const defaultUsers: UserAccount[] = [
+        { id: '1', username: 'admin', name: 'Administrador Geral', password: 'admin', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
+        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: '123', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
+      ];
+      for (const user of defaultUsers) {
+        await salvarDocumento('users', user, user.id);
       }
     }
   } catch (error) {

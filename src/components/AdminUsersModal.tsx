@@ -7,8 +7,8 @@ import {
   RotateCcw, Power, Check
 } from 'lucide-react';
 import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT } from '../types';
-import { dbSaveUserAccount } from '../lib/firebaseSync';
-import { getDefaultInitialPassword } from '../lib/userManagement';
+import { dbSaveUserAccount, dbDeleteUserAccount } from '../lib/firebaseSync';
+import { getDefaultInitialPassword, hashPassword } from '../lib/userManagement';
 
 interface DocumentLogEntry {
   docId: string;
@@ -285,18 +285,19 @@ export default function AdminUsersModal({
     }
   };
 
-  const handleResetUserPassword = (userId: string) => {
+  const handleResetUserPassword = async (userId: string) => {
     const targetUser = users.find(u => u.id === userId);
     if (!targetUser) return;
 
     const defaultPass = getDefaultInitialPassword(targetUser.name, targetUser.username);
+    const passHash = await hashPassword(defaultPass);
 
     const updatedUsers = users.map(u => {
       if (u.id === userId) {
         const updatedAcc: UserAccount = {
           ...u,
           password: defaultPass,
-          passwordHash: defaultPass,
+          passwordHash: passHash,
           primeiro_acesso: true,
           firstAccess: true,
           lastPasswordChange: undefined
@@ -409,6 +410,7 @@ export default function AdminUsersModal({
     }
 
     if (confirm(`Tem certeza que deseja excluir o usuário "${name}" do sistema? Esta ação revogará imediatamente o acesso.`)) {
+      dbDeleteUserAccount(userId);
       const updatedList = users.filter(u => u.id !== userId);
       onUpdateUsers(updatedList);
       setSuccess(`Usuário "${name}" excluído.`);
@@ -426,7 +428,7 @@ export default function AdminUsersModal({
       .replace(/\s+/g, '.');          // replace spaces with dots
   };
 
-  const handleCreateAccount = (emp: Employee) => {
+  const handleCreateAccount = async (emp: Employee) => {
     const cpfLimpo = (emp.cpf || "").replace(/\D/g, "");
     const baseUsername = cpfLimpo.length > 0 ? cpfLimpo : normalizeUsername(emp.name);
     let finalUsername = baseUsername;
@@ -444,13 +446,14 @@ export default function AdminUsersModal({
                         roleLower.includes('lider');
     const defaultRole: 'colaborador' | 'lider' = isLeadership ? 'lider' : 'colaborador';
     const defaultPassword = getDefaultInitialPassword(emp.name, emp.cpf);
+    const passHash = await hashPassword(defaultPassword);
 
     const newAccount: UserAccount = {
       id: emp.id,
       username: finalUsername,
       name: emp.name,
       password: defaultPassword,
-      passwordHash: defaultPassword,
+      passwordHash: passHash,
       role: defaultRole,
       employeeId: emp.id,
       status: 'Ativo',

@@ -5,6 +5,7 @@ import {
   HelpCircle, AlertTriangle, Building, BookOpen, Users, FolderOpen
 } from 'lucide-react';
 import { SectorData, Employee, POP, ATR } from '../types';
+import { dbDeleteSector } from '../lib/firebaseSync';
 
 interface SectorManagerProps {
   sectors: SectorData[];
@@ -83,6 +84,7 @@ export default function SectorManager({
     }
 
     if (window.confirm(`Tem certeza que deseja remover o setor "${sec.name}"?`)) {
+      dbDeleteSector(sec.id);
       setSectors(prev => prev.filter(s => s.id !== sec.id));
     }
   };

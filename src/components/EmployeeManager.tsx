@@ -6,7 +6,7 @@ import {
   MapPin, Clipboard, FileCheck, Info, UserCheck, AlertCircle, Home
 } from 'lucide-react';
 import { Employee, SectorData, POP, ATR, IT, UserAccount } from '../types';
-import { dbSaveUserAccount } from '../lib/firebaseSync';
+import { dbSaveUserAccount, dbDeleteEmployee } from '../lib/firebaseSync';
 import { hashPassword, getDefaultInitialPassword } from '../lib/userManagement';
 
 interface EmployeeManagerProps {
@@ -102,6 +102,7 @@ export default function EmployeeManager({
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm('Tem certeza que deseja remover este funcionário?')) {
+      dbDeleteEmployee(id);
       setEmployees(prev => prev.filter(emp => emp.id !== id));
       if (selectedEmployee?.id === id) {
         setSelectedEmployee(null);
