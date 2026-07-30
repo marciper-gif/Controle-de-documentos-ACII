@@ -23,10 +23,10 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       }
     }, 40);
 
-    // 3 seconds timer before triggering completion transition
+    // 6 seconds timer before triggering completion transition (gives plenty of time to read the slogan)
     const timer = setTimeout(() => {
       setIsVisible(false);
-    }, 3000);
+    }, 6000);
 
     return () => {
       clearInterval(typingInterval);
@@ -48,7 +48,9 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           initial={{ opacity: 1 }}
           exit={{ opacity: 0, scale: 1.02 }}
           transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-[#1e3a5f] via-[#112240] to-[#0f172a] text-white overflow-hidden select-none"
+          onClick={() => setIsVisible(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-[#1e3a5f] via-[#112240] to-[#0f172a] text-white overflow-hidden select-none cursor-pointer"
+          title="Clique para pular"
         >
           {/* Ambient Lighting & Decorative Glows */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.12)_0,transparent_70%)] pointer-events-none" />
