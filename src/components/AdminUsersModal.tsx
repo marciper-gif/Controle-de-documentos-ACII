@@ -313,7 +313,7 @@ export default function AdminUsersModal({
     setTimeout(() => setSuccess(null), 6000);
   };
 
-  const handleFormSubmit = (e: FormEvent) => {
+  const handleFormSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
@@ -341,14 +341,18 @@ export default function AdminUsersModal({
 
     if (editingUserId) {
       // Editing existing user
+      const targetUser = users.find(u => u.id === editingUserId);
+      const newPass = formPassword.trim();
+      const passHash = newPass ? await hashPassword(newPass) : targetUser?.passwordHash;
+
       updatedList = users.map(u => {
         if (u.id === editingUserId) {
-          return {
+          const updatedAcc: UserAccount = {
             ...u,
             name: formName.trim(),
             username: formUsername.trim(),
-            password: formPassword || u.password,
-            passwordHash: formPassword || u.passwordHash,
+            password: newPass || u.password,
+            passwordHash: passHash || u.passwordHash,
             role: formRole,
             employeeId: formEmployeeId || undefined,
             status: formStatus,
@@ -356,6 +360,8 @@ export default function AdminUsersModal({
             primeiro_acesso: formPrimeiroAcesso,
             firstAccess: formPrimeiroAcesso
           };
+          dbSaveUserAccount(updatedAcc);
+          return updatedAcc;
         }
         return u;
       });
@@ -363,12 +369,14 @@ export default function AdminUsersModal({
     } else {
       // Adding new user
       const initialPass = formPassword.trim() || getDefaultPasswordForName(formName);
+      const passHash = await hashPassword(initialPass);
+
       const newUser: UserAccount = {
         id: `user-${Date.now()}`,
         name: formName.trim(),
         username: formUsername.trim(),
         password: initialPass,
-        passwordHash: initialPass,
+        passwordHash: passHash,
         role: formRole,
         employeeId: formEmployeeId || undefined,
         status: formStatus,
@@ -376,6 +384,7 @@ export default function AdminUsersModal({
         primeiro_acesso: true,
         firstAccess: true
       };
+      dbSaveUserAccount(newUser);
       updatedList = [...users, newUser];
       setSuccess(`Usuário "${formName}" cadastrado com sucesso (Senha inicial: "${initialPass}")!`);
     }

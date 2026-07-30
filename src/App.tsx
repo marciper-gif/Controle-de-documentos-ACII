@@ -334,14 +334,17 @@ export default function App() {
   // Sync current user with updated list in case of changes
   useEffect(() => {
     if (currentUser) {
-      const matched = users.find(u => u.id === currentUser.id);
-      if (!matched) {
-        setCurrentUser(null);
-        localStorage.removeItem('ms-current-user');
-      } else if (JSON.stringify(matched) !== JSON.stringify(currentUser)) {
-        setCurrentUser(matched);
-        localStorage.setItem('ms-current-user', JSON.stringify(matched));
+      const matched = users.find(u => 
+        u.id === currentUser.id || 
+        (u.username && currentUser.username && u.username.toLowerCase() === currentUser.username.toLowerCase())
+      );
+      if (matched) {
+        if (JSON.stringify(matched) !== JSON.stringify(currentUser)) {
+          setCurrentUser(matched);
+          localStorage.setItem('ms-current-user', JSON.stringify(matched));
+        }
       }
+      // DO NOT logout currentUser when users list is updated!
     }
   }, [users]);
 
@@ -704,11 +707,16 @@ export default function App() {
       if (list.length > 0) {
         rawSetUsers(prev => {
           const map = new Map<string, UserAccount>();
-          list.forEach(item => map.set(item.id, item));
-          prev.forEach(item => {
-            if (!item.password && !map.has(item.id)) {
-              map.set(item.id, item);
+          prev.forEach(item => map.set(item.id, item));
+          list.forEach(item => {
+            const existingKey = Array.from(map.keys()).find(k => 
+              k === item.id || 
+              (map.get(k)?.username && item.username && map.get(k)!.username.toLowerCase() === item.username.toLowerCase())
+            );
+            if (existingKey) {
+              map.delete(existingKey);
             }
+            map.set(item.id, item);
           });
           const result = Array.from(map.values());
           localStorage.setItem('ms-users', JSON.stringify(result));

@@ -168,7 +168,7 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
                       required
                       value={password}
                       onChange={e => setPassword(e.target.value)}
-                      placeholder="Sua senha de acesso (Inicial: 123)"
+                      placeholder="Senha (Ex: admin ou PrimeiroNome123)"
                       className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f] transition-all font-mono"
                     />
                     <button

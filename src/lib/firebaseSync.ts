@@ -74,10 +74,10 @@ export async function seedDatabaseIfEmpty() {
     if (usersSnap.empty) {
       console.log('Seeding default users...');
       const adminHash = await hashPassword('admin');
-      const collabHash = await hashPassword('123');
+      const collabHash = await hashPassword('Colaborador123');
       const defaultUsers: UserAccount[] = [
         { id: '1', username: 'admin', name: 'Administrador Geral', password: 'admin', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
-        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: '123', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
+        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: 'Colaborador123', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
       ];
       for (const user of defaultUsers) {
         await salvarDocumento('users', user, user.id);
