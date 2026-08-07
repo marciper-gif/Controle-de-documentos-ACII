@@ -11,7 +11,6 @@ import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions } f
 
 // Initial Data imports for seeding
 import { initialSectors } from '../data/sectors';
-import { initialEmployees } from '../data/employees';
 import { initialATRs } from '../data/atrs';
 import { initialPOPs } from '../data/pops';
 import { initialITs } from '../data/its';
@@ -40,14 +39,7 @@ export async function seedDatabaseIfEmpty() {
       }
     }
 
-    // Check if employees are missing any default employee
-    const employeesSnap = await getDocs(collection(db, 'employees'));
-    const existingEmployeeIds = new Set(employeesSnap.docs.map(d => d.id));
-    for (const emp of initialEmployees) {
-      if (!existingEmployeeIds.has(emp.id)) {
-        await salvarDocumento('employees', emp, emp.id);
-      }
-    }
+    // Employees collection is populated solely by user creation in the system
 
     // Check if ATRs are missing any default ATR
     const atrsSnap = await getDocs(collection(db, 'atrs'));

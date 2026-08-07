@@ -45,7 +45,6 @@ import { initialATRs } from './data/atrs';
 import { initialPOPs } from './data/pops';
 import { initialITs } from './data/its';
 import { initialSectors } from './data/sectors';
-import { initialEmployees } from './data/employees';
 import FlowchartView from './components/FlowchartView';
 import LoginView from './components/LoginView';
 import AdminUsersModal from './components/AdminUsersModal';
@@ -537,14 +536,15 @@ export default function App() {
     });
   }, []);
 
-  // Dynamic employees state
+  // Dynamic employees state - only preserving employees created in the system
   const [employees, rawSetEmployees] = useState<Employee[]>(() => {
     const saved = localStorage.getItem('ms-employees');
-    if (!saved) return initialEmployees;
+    if (!saved) return [];
     try {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      return initialEmployees;
+      return [];
     }
   });
 
@@ -683,12 +683,8 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push(doc.data() as Employee);
       });
-      const map = new Map<string, Employee>();
-      initialEmployees.forEach(e => map.set(e.id, e));
-      list.forEach(e => { if (e && e.id) map.set(e.id, e); });
-      const merged = Array.from(map.values());
-      rawSetEmployees(merged);
-      localStorage.setItem('ms-employees', JSON.stringify(merged));
+      rawSetEmployees(list);
+      localStorage.setItem('ms-employees', JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);
     });
