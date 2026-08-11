@@ -1016,4 +1016,3 @@ export default function EmployeeManager({
     </div>
   );
 }
-fix: evitar coliso de ID de funcionario
