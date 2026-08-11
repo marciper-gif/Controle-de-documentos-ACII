@@ -163,7 +163,7 @@ export default function EmployeeManager({
       }
     } else {
       // Create Employee
-      const newEmpId = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
+      const newEmpId = `EMP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const newEmp: Employee = {
         id: newEmpId,
         name: formName,
@@ -1016,3 +1016,4 @@ export default function EmployeeManager({
     </div>
   );
 }
+fix: evitar coliso de ID de funcionario
