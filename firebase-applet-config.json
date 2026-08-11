@@ -6,5 +6,6 @@
   "storageBucket": "dogwood-loader-bln7n.firebasestorage.app",
   "messagingSenderId": "372820995597",
   "measurementId": "",
-  "oAuthClientId": "372820995597-n4v5la1g2vtivpdprc9s1clni0tcakb0.apps.googleusercontent.com"
+  "oAuthClientId": "372820995597-n4v5la1g2vtivpdprc9s1clni0tcakb0.apps.googleusercontent.com",
+  "firestoreDatabaseId": "ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900"
 }
