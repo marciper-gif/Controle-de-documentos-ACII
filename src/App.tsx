@@ -555,16 +555,16 @@ export default function App() {
     }
   });
 
-  dbSaveEmployee(item).catch((err) => {
-            console.error('Falha ao salvar funcionário no Firestore:', err);
-            alert(`⚠️ Não foi possível salvar "${item.name}" no banco de dados. Verifique sua conexão com a internet e tente cadastrar novamente.`);
-          });
+  const setEmployees = useCallback((val: React.SetStateAction<Employee[]>) => {
     rawSetEmployees((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
       computed.forEach(item => {
         const original = prev.find(p => p.id === item.id);
         if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-          dbSaveEmployee(item);
+          dbSaveEmployee(item).catch((err) => {
+            console.error('Falha ao salvar funcionário no Firestore:', err);
+            alert(`⚠️ Não foi possível salvar "${item.name}" no banco de dados. Verifique sua conexão com a internet e tente cadastrar novamente.`);
+          });
         }
       });
       return computed;
