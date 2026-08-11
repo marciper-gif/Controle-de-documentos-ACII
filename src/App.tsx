@@ -555,7 +555,10 @@ export default function App() {
     }
   });
 
-  const setEmployees = useCallback((val: React.SetStateAction<Employee[]>) => {
+  dbSaveEmployee(item).catch((err) => {
+            console.error('Falha ao salvar funcionário no Firestore:', err);
+            alert(`⚠️ Não foi possível salvar "${item.name}" no banco de dados. Verifique sua conexão com a internet e tente cadastrar novamente.`);
+          });
     rawSetEmployees((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
       computed.forEach(item => {
@@ -684,14 +687,23 @@ export default function App() {
       console.warn("Firestore snapshot error (sectors):", err);
     });
 
-    // Real-time Employee subscription
+   // Real-time Employee subscription
     const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
-      const list: Employee[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as Employee);
+      rawSetEmployees((prev) => {
+        const map = new Map<string, Employee>();
+        prev.forEach((e) => { if (e && e.id) map.set(e.id, e); });
+        snapshot.docChanges().forEach((change) => {
+          const data = change.doc.data() as Employee;
+          if (change.type === 'removed') {
+            map.delete(change.doc.id);
+          } else {
+            map.set(change.doc.id, data);
+          }
+        });
+        const merged = Array.from(map.values());
+        localStorage.setItem('ms-employees', JSON.stringify(merged));
+        return merged;
       });
-      rawSetEmployees(list);
-      localStorage.setItem('ms-employees', JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);
     });
