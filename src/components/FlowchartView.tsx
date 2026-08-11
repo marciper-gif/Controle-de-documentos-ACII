@@ -26,9 +26,12 @@ import {
   ChevronRight,
   Printer,
   Map,
-  LayoutGrid
+  LayoutGrid,
+  Download,
+  Loader2
 } from 'lucide-react';
 import { POP } from '../types';
+import { exportElementToPdf } from '../utils/pdfExport';
 
 interface FlowchartViewProps {
   pop: POP;
@@ -226,7 +229,24 @@ function getPhasesForPop(pop: POP): VisualPhase[] {
 
 export default function FlowchartView({ pop }: FlowchartViewProps) {
   const [viewMode, setViewMode] = useState<'lanes' | 'map'>('lanes');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const phases = getPhasesForPop(pop);
+
+  const handleExportPdf = async () => {
+    setIsExportingPdf(true);
+    try {
+      await exportElementToPdf({
+        elementId: 'flowchart-printable-area',
+        fileName: `Fluxograma_${pop.id}_${pop.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
+        documentTitle: `Fluxograma ${pop.id} - ${pop.title}`
+      });
+    } catch (err) {
+      console.error('Erro ao exportar PDF do fluxograma:', err);
+      alert('Ocorreu um erro ao gerar o arquivo PDF do fluxograma.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   return (
     <div className="space-y-8 animate-fade-in text-slate-800 dark:text-slate-150">
@@ -315,7 +335,7 @@ export default function FlowchartView({ pop }: FlowchartViewProps) {
       </div>
 
       {/* Main visual Flowchart Canvas (POP-001 standardized design model) */}
-      <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-950/80 shadow-md relative">
+      <div id="flowchart-printable-area" className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-950/80 shadow-md relative">
         
         {/* Blueprint graph paper grid background overlay */}
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:32px_32px] dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] opacity-35 pointer-events-none"></div>
@@ -338,7 +358,7 @@ export default function FlowchartView({ pop }: FlowchartViewProps) {
             </p>
           </div>
           
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3">
             {/* View Mode Switcher */}
             <div className="no-print flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200/60 dark:border-slate-800">
               <button
@@ -364,6 +384,25 @@ export default function FlowchartView({ pop }: FlowchartViewProps) {
                 <span>Mapa de Setor (Mural)</span>
               </button>
             </div>
+
+            <button
+              onClick={handleExportPdf}
+              disabled={isExportingPdf}
+              className="no-print flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 disabled:bg-sky-400 text-white font-bold text-[11px] px-3.5 py-1.5 rounded-lg transition-all cursor-pointer shadow-3xs"
+              title="Exportar Fluxograma em arquivo PDF"
+            >
+              {isExportingPdf ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Gerando PDF...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Baixar PDF</span>
+                </>
+              )}
+            </button>
 
             <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono">
               <span className="flex items-center gap-1.5">

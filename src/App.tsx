@@ -37,10 +37,13 @@ import {
   AlertTriangle,
   AlertCircle,
   Glasses,
-  Cloud
+  Cloud,
+  Download,
+  Loader2
 } from 'lucide-react';
 
 import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry } from './types';
+import { exportElementToPdf } from './utils/pdfExport';
 import { initialATRs } from './data/atrs';
 import { initialPOPs } from './data/pops';
 import { initialITs } from './data/its';
@@ -203,6 +206,10 @@ function ACIILogo({ className = "w-full h-auto" }: { className?: string }) {
 export default function App() {
   // Splash Screen State
   const [showSplash, setShowSplash] = useState<boolean>(true);
+
+  // PDF Direct Export States
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [pdfExportProgress, setPdfExportProgress] = useState<string>('');
 
   // User Management State
   const [users, rawSetUsers] = useState<UserAccount[]>(() => {
@@ -2727,9 +2734,47 @@ export default function App() {
                     <button
                       onClick={() => window.print()}
                       className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/80 font-bold text-xs px-3.5 py-1.5 rounded-lg transition-all cursor-pointer shadow-3xs"
+                      title="Abrir a caixa de diálogo de impressão do navegador"
                     >
                       <Printer className="w-4 h-4" />
-                      <span>Imprimir / PDF</span>
+                      <span>Imprimir</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!activeDoc) return;
+                        setIsExportingPdf(true);
+                        try {
+                          const docTypeTitle = selectedDocType === 'pop' ? 'POP' : selectedDocType === 'atr' ? 'ATR' : 'IT';
+                          const cleanTitle = activeDoc.title.replace(/[^a-zA-Z0-9_-]/g, '_');
+                          await exportElementToPdf({
+                            elementId: 'document-printable-area',
+                            fileName: `${docTypeTitle}_${activeDoc.id}_${cleanTitle}.pdf`,
+                            documentTitle: `${docTypeTitle} ${activeDoc.id} - ${activeDoc.title}`,
+                            onProgress: (msg) => setPdfExportProgress(msg)
+                          });
+                        } catch (err) {
+                          console.error('Erro ao gerar PDF do documento:', err);
+                          alert('Ocorreu um erro ao gerar o arquivo PDF. Por favor, tente novamente.');
+                        } finally {
+                          setIsExportingPdf(false);
+                          setPdfExportProgress('');
+                        }
+                      }}
+                      disabled={isExportingPdf}
+                      className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 disabled:bg-sky-400 text-white border border-sky-700 font-bold text-xs px-3.5 py-1.5 rounded-lg transition-all cursor-pointer shadow-3xs"
+                      title="Baixar arquivo PDF gerado diretamente no dispositivo"
+                    >
+                      {isExportingPdf ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>{pdfExportProgress || 'Gerando PDF...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4" />
+                          <span>Baixar PDF</span>
+                        </>
+                      )}
                     </button>
                     <button
                       onClick={() => {
@@ -2758,7 +2803,7 @@ export default function App() {
                 </div>
 
                 {/* Printable Document Area */}
-                <div className="p-8 md:p-10 overflow-y-auto flex-1 text-slate-800 dark:text-slate-200 print:p-0 scrollbar-thin scrollbar-thumb-slate-700">
+                <div id="document-printable-area" className="p-8 md:p-10 overflow-y-auto flex-1 text-slate-800 dark:text-slate-200 print:p-0 scrollbar-thin scrollbar-thumb-slate-700 bg-white dark:bg-slate-900">
                   
                   {/* Alert Banner for review status */}
                   {activeDocReviewStatus && (
