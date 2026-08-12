@@ -372,6 +372,20 @@ export default function App() {
     };
   }, [currentUser, profilePermissions]);
 
+  // Garante que auth_links/{uid} está vinculado ao currentUser certo
+  // sempre que existir uma sessão do Firebase Auth (authReady) — não só
+  // no momento do login. Sem isso, uma sessão RESTAURADA do localStorage
+  // após recarregar a página (sem passar por handleLogin de novo) pode
+  // ficar com um request.auth.uid sem nenhum auth_links correspondente
+  // (ou apontando pra um vínculo antigo/de outra sessão), fazendo o
+  // Firestore/Storage negar mesmo pra quem é admin de verdade.
+  useEffect(() => {
+    if (!authReady || !currentUser || !currentUser.password) return;
+    ensureAnonymousAuth()
+      .then(uid => linkFirebaseAuthToAppUser(uid, currentUser, employees, sectors))
+      .catch(e => console.warn('Falha ao (re)vincular sessão autenticada:', e));
+  }, [authReady, currentUser, employees, sectors]);
+
   // Sync current user with updated list in case of changes
   useEffect(() => {
     if (currentUser) {
