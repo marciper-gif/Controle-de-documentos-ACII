@@ -618,6 +618,18 @@ export default function App() {
         // Sessão-ponte (ver ensureAnonymousAuth): não é um login de verdade,
         // só destrava as leituras/escritas do Firestore para quem entrou
         // por CPF/senha. Não mexe em currentUser.
+        //
+        // Espera resolver o ID token ANTES de liberar authReady: o SDK do
+        // Firestore só anexa o token corretamente às requisições depois
+        // que esse round-trip termina — sem isso, as primeiras chamadas
+        // onSnapshot() abertas em sequência logo a seguir (sectors,
+        // employees, atrs...) saem sem autenticação e tomam
+        // permission-denied, mesmo com a sessão já existindo.
+        try {
+          await firebaseUser.getIdToken();
+        } catch (e) {
+          console.warn('Falha ao resolver token da sessão anônima:', e);
+        }
         setAuthReady(true);
         return;
       }
@@ -669,6 +681,15 @@ export default function App() {
 
         setCurrentUser(firebaseUserAccount);
         localStorage.setItem('ms-current-user', JSON.stringify(firebaseUserAccount));
+
+        // Mesmo motivo do ramo da sessão anônima acima: espera o ID token
+        // resolver antes de liberar authReady, pra evitar permission-denied
+        // nas primeiras leituras do Firestore.
+        try {
+          await firebaseUser.getIdToken();
+        } catch (e) {
+          console.warn('Falha ao resolver token da sessão Google:', e);
+        }
         setAuthReady(true);
 
         // Vincula esta sessão real do Firebase Auth ao usuário/papel/setor,
