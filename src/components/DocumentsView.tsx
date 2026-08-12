@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Folder,
@@ -13,15 +13,19 @@ import {
   X,
   Inbox,
   Building,
-  UploadCloud
+  UploadCloud,
+  FileUp,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
-import { Employee, GuardedDocument, SectorData, UserAccount } from '../types';
+import { DocumentVersion, Employee, GuardedDocument, SectorData, UserAccount } from '../types';
 import {
   computeDocumentStatus,
   DOCUMENT_STATUS_CLASSES,
   DOCUMENT_STATUS_DOT,
   DOCUMENT_STATUS_LABEL
 } from '../utils/guardedDocuments';
+import { uploadGuardedDocumentFile, validateDocumentFile } from '../lib/documentStorage';
 import UploadDocumentModal from './UploadDocumentModal';
 import ExpiringDocumentsPanel from './ExpiringDocumentsPanel';
 
@@ -61,9 +65,110 @@ export default function DocumentsView({
   const [auditDoc, setAuditDoc] = useState<GuardedDocument | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
+  // Reenvio de nova versão (item 4.5 da especificação)
+  const versionInputRef = useRef<HTMLInputElement>(null);
+  const [versionTargetDoc, setVersionTargetDoc] = useState<GuardedDocument | null>(null);
+  const [versionUploading, setVersionUploading] = useState(false);
+  const [versionProgress, setVersionProgress] = useState(0);
+  const [versionError, setVersionError] = useState<string | null>(null);
+
   const isAdmin = currentUser?.role === 'admin';
   const isGestor = currentUser?.role === 'gestor' || currentUser?.role === 'lider';
   const canUpload = isAdmin || isGestor;
+
+  const uploaderName = currentUser?.name || currentUser?.username || 'Usuário';
+
+  const triggerNewVersion = (doc: GuardedDocument) => {
+    setVersionTargetDoc(doc);
+    setVersionError(null);
+    // O input é o mesmo pra todas as linhas — versionTargetDoc guarda o
+    // alvo, lido no onChange quando o usuário escolher o arquivo.
+    setTimeout(() => versionInputRef.current?.click(), 0);
+  };
+
+  const handleVersionFileSelected = async (file: File | null) => {
+    if (!file || !versionTargetDoc) return;
+
+    const validationError = validateDocumentFile(file);
+    if (validationError) {
+      setVersionError(validationError);
+      return;
+    }
+
+    const doc = versionTargetDoc;
+    setVersionUploading(true);
+    setVersionProgress(0);
+    setVersionError(null);
+
+    try {
+      const newVersionNumber = doc.version + 1;
+      const { fileUrl, storagePath } = await uploadGuardedDocumentFile(
+        file,
+        doc.sectorId,
+        doc.id,
+        newVersionNumber,
+        setVersionProgress
+      );
+
+      const nowIso = new Date().toISOString();
+      const archivedVersion: DocumentVersion = {
+        version: doc.version,
+        fileUrl: doc.fileUrl,
+        storagePath: doc.storagePath,
+        fileName: doc.fileName,
+        fileSize: doc.fileSize,
+        uploadedBy: doc.uploadedBy,
+        uploadedAt: doc.uploadedAt
+      };
+
+      setGuardedDocuments(prev =>
+        prev.map(d =>
+          d.id === doc.id
+            ? {
+                ...d,
+                fileName: file.name,
+                fileUrl,
+                storagePath,
+                fileSize: file.size,
+                fileType: file.type,
+                uploadedBy: uploaderName,
+                uploadedByEmployeeId: currentUserEmployee?.id,
+                uploadedAt: nowIso,
+                version: newVersionNumber,
+                previousVersions: [...(d.previousVersions || []), archivedVersion],
+                auditLog: [
+                  ...(d.auditLog || []),
+                  {
+                    action: 'upload' as const,
+                    user: uploaderName,
+                    date: nowIso,
+                    notes: `Nova versão enviada (v${newVersionNumber})`
+                  }
+                ]
+              }
+            : d
+        )
+      );
+
+      setVersionTargetDoc(null);
+    } catch (err: any) {
+      console.error('Erro ao enviar nova versão:', err);
+      setVersionError(err?.message || 'Falha ao enviar nova versão. Tente novamente.');
+    } finally {
+      setVersionUploading(false);
+    }
+  };
+
+  const handleDownloadClick = (doc: GuardedDocument) => {
+    const nowIso = new Date().toISOString();
+    setGuardedDocuments(prev =>
+      prev.map(d =>
+        d.id === doc.id
+          ? { ...d, auditLog: [...(d.auditLog || []), { action: 'download' as const, user: uploaderName, date: nowIso }] }
+          : d
+      )
+    );
+  };
 
   // Setor do próprio usuário logado (pra dar uma dica visual de qual
   // pasta é "a dele" — a segurança de verdade já vem do Firestore: o
@@ -138,6 +243,7 @@ export default function DocumentsView({
             target="_blank"
             rel="noopener noreferrer"
             title="Visualizar / baixar"
+            onClick={() => handleDownloadClick(doc)}
             className="p-2 rounded-lg text-slate-500 hover:text-sky-600 hover:bg-sky-500/10 dark:text-slate-400 dark:hover:text-sky-400 transition-colors cursor-pointer"
           >
             <Download className="w-4 h-4" />
@@ -158,6 +264,16 @@ export default function DocumentsView({
           >
             <ScrollText className="w-4 h-4" />
           </button>
+          {canUpload && (
+            <button
+              type="button"
+              title="Enviar nova versão"
+              onClick={() => triggerNewVersion(doc)}
+              className="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-500/10 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
+            >
+              <FileUp className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </motion.div>
     );
@@ -366,6 +482,19 @@ export default function DocumentsView({
                   ))}
                 </div>
               )}
+              {canUpload && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const doc = historyDoc;
+                    setHistoryDoc(null);
+                    if (doc) triggerNewVersion(doc);
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/20 transition-all cursor-pointer"
+                >
+                  <FileUp className="w-4 h-4" /> Enviar nova versão
+                </button>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -431,6 +560,51 @@ export default function DocumentsView({
               setGuardedDocuments(prev => [...prev, newDoc]);
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Input escondido usado por "Enviar nova versão" em qualquer linha */}
+      <input
+        ref={versionInputRef}
+        type="file"
+        className="hidden"
+        onChange={e => {
+          handleVersionFileSelected(e.target.files?.[0] || null);
+          e.target.value = '';
+        }}
+      />
+
+      {/* Indicador de progresso/erro do envio de nova versão */}
+      <AnimatePresence>
+        {(versionUploading || versionError) && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="fixed bottom-4 right-4 z-50 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-4"
+          >
+            {versionError ? (
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-rose-600 dark:text-rose-400">Falha ao enviar nova versão</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{versionError}</p>
+                </div>
+                <button onClick={() => setVersionError(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" /> Enviando nova versão...
+                </p>
+                <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-rose-500 transition-all" style={{ width: `${versionProgress}%` }} />
+                </div>
+              </div>
+            )}
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
