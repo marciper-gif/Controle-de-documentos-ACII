@@ -42,7 +42,7 @@ import {
   Loader2
 } from 'lucide-react';
 
-import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry } from './types';
+import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry, GuardedDocument } from './types';
 import { exportElementToPdf } from './utils/pdfExport';
 import { initialATRs } from './data/atrs';
 import { initialPOPs } from './data/pops';
@@ -75,7 +75,9 @@ import {
   dbDeleteIT,
   dbSaveUserAccount,
   dbDeleteUserAccount,
-  dbSavePermissions
+  dbSavePermissions,
+  dbSaveGuardedDocument,
+  dbDeleteGuardedDocument
 } from './lib/firebaseSync';
 
 
@@ -594,6 +596,38 @@ export default function App() {
     localStorage.setItem('ms-sectors', JSON.stringify(sectors));
   }, [sectors]);
 
+  // Documentos guardados (módulo de guarda de documentos)
+  const [guardedDocuments, rawSetGuardedDocuments] = useState<GuardedDocument[]>(() => {
+    const saved = localStorage.getItem('ms-guarded-documents');
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const setGuardedDocuments = useCallback((val: React.SetStateAction<GuardedDocument[]>) => {
+    rawSetGuardedDocuments((prev) => {
+      const computed = typeof val === 'function' ? val(prev) : val;
+      computed.forEach(item => {
+        const original = prev.find(p => p.id === item.id);
+        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+          dbSaveGuardedDocument(item, currentUser).catch((err) => {
+            console.error('Falha ao salvar documento no Firestore:', err);
+            alert(`⚠️ Não foi possível salvar "${item.title}" no banco de dados. Verifique sua conexão com a internet e tente novamente.`);
+          });
+        }
+      });
+      return computed;
+    });
+  }, [currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem('ms-guarded-documents', JSON.stringify(guardedDocuments));
+  }, [guardedDocuments]);
+
 
   const currentUserEmployee = useMemo(() => {
     if (!currentUser || !currentUser.employeeId) return null;
@@ -815,6 +849,27 @@ export default function App() {
       console.warn("Firestore snapshot error (its):", err);
     });
 
+    // Real-time Guarded Documents subscription (módulo de guarda de documentos)
+    const unsubGuardedDocuments = onSnapshot(collection(db, 'guarded_documents'), (snapshot) => {
+      rawSetGuardedDocuments((prev) => {
+        const map = new Map<string, GuardedDocument>();
+        prev.forEach((d) => { if (d && d.id) map.set(d.id, d); });
+        snapshot.docChanges().forEach((change) => {
+          const data = change.doc.data() as GuardedDocument;
+          if (change.type === 'removed') {
+            map.delete(change.doc.id);
+          } else {
+            map.set(change.doc.id, data);
+          }
+        });
+        const merged = Array.from(map.values());
+        localStorage.setItem('ms-guarded-documents', JSON.stringify(merged));
+        return merged;
+      });
+    }, (err) => {
+      console.warn("Firestore snapshot error (guarded_documents):", err);
+    });
+
     // Real-time Users subscription
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       const list: UserAccount[] = [];
@@ -859,6 +914,7 @@ export default function App() {
       unsubATRs();
       unsubPOPs();
       unsubITs();
+      unsubGuardedDocuments();
       unsubUsers();
       unsubPermissions();
     };

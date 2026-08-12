@@ -120,3 +120,59 @@ export interface ProfilePermissions {
   gestor: ProfilePermissionItem;
   lider?: ProfilePermissionItem;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Módulo de Guarda de Documentos
+// ─────────────────────────────────────────────────────────────────────
+
+export interface DocumentAuditEntry {
+  action: 'upload' | 'view' | 'download' | 'update_metadata' | 'renew_retention' | 'mark_for_disposal' | 'delete';
+  user: string; // nome do usuário
+  date: string; // ISO
+  notes?: string;
+}
+
+export interface DocumentVersion {
+  version: number;
+  fileUrl: string;
+  storagePath: string;
+  fileName: string;
+  fileSize: number;
+  uploadedBy: string;
+  uploadedAt: string; // ISO
+}
+
+export interface GuardedDocument {
+  id: string;
+  title: string;
+  sectorId: string;        // referencia SectorData.id
+  sectorName: string;      // desnormalizado para exibição rápida
+  documentType: string;    // ex: "Contrato", "Nota Fiscal", "Ata de Reunião", "Política Interna", "Ficha de Funcionário"
+  description?: string;
+
+  // Arquivo atual (última versão)
+  fileName: string;
+  fileUrl: string;
+  storagePath: string;
+  fileSize: number;
+  fileType: string; // mime type
+
+  uploadedBy: string;
+  uploadedByEmployeeId?: string;
+  uploadedAt: string; // ISO
+
+  // Guarda / temporalidade
+  retentionYears: number;       // tempo de guarda em anos
+  retentionUntil: string;       // ISO, calculado = uploadedAt + retentionYears
+  status: 'ativo' | 'vencendo' | 'vencido' | 'eliminado';
+
+  // Acesso
+  extraViewerSectorIds?: string[]; // setores extras com permissão de ver, além do sectorId
+
+  // Versionamento
+  version: number;
+  previousVersions?: DocumentVersion[];
+
+  // Auditoria
+  auditLog: DocumentAuditEntry[];
+}

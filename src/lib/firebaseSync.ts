@@ -7,7 +7,7 @@ import {
 import { db } from './firebase';
 import { salvarDocumento, deletarDocumento } from '../config/firebase';
 import { logSystemEvent } from '../utils/logger';
-import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions } from '../types';
+import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument } from '../types';
 
 // Initial Data imports for seeding
 import { initialSectors } from '../data/sectors';
@@ -144,4 +144,13 @@ export async function dbDeleteUserAccount(id: string, currentUser?: any) {
 // --- PERMISSIONS CRUD ---
 export async function dbSavePermissions(perms: ProfilePermissions, currentUser?: any) {
   return await salvarDocumento('permissions', perms, 'default', currentUser);
+}
+
+// --- GUARDED DOCUMENTS CRUD (Módulo de Guarda de Documentos) ---
+export async function dbSaveGuardedDocument(doc: GuardedDocument, currentUser?: any) {
+  return await salvarDocumento('guarded_documents', doc, doc.id, currentUser);
+}
+
+export async function dbDeleteGuardedDocument(id: string, currentUser?: any) {
+  return await deletarDocumento('guarded_documents', id);
 }
