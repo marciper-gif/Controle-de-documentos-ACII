@@ -1,54 +1,136 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Função auxiliar para verificar autenticação
+
+    // ─────────────────────────────────────────────────────────────────
+    // O login principal do app (CPF/matrícula + senha) é validado 100%
+    // no cliente (src/lib/userManagement.ts) e NUNCA usa o Firebase Auth
+    // diretamente — só quem entra com "Entrar com o Google" tem uma
+    // sessão real. Por isso o app cria uma sessão anônima do Firebase
+    // Auth como ponte (ensureAnonymousAuth, em src/config/firebase.ts) e
+    // grava o vínculo usuário/papel/setor em auth_links/{uid}
+    // (src/lib/authLink.ts) logo após qualquer login bem-sucedido.
+    // Estas regras dependem desse vínculo para saber quem está pedindo
+    // o quê — sem ele, `request.auth` existe mas não tem papel nenhum.
+    // ─────────────────────────────────────────────────────────────────
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    // Função auxiliar para verificar se é admin
-    function isAdmin() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-    
-    // Coleções públicas e corporativas (permitir leitura/escrita para garantir persistência)
-    match /sectors/{sectorId} {
-      allow read, write: if true;
-    }
-    
-    // Documentos do sistema (POPs, ATRs, ITs)
-    match /pops/{popId} {
-      allow read, write: if true;
-    }
-    
-    match /atrs/{atrId} {
-      allow read, write: if true;
-    }
-    
-    match /its/{itId} {
-      allow read, write: if true;
-    }
-    
-    // Funcionários
-    match /employees/{employeeId} {
-      allow read, write: if true;
-    }
-    
-    // Usuários (contas de acesso)
-    match /users/{userId} {
-      allow read, write: if true;
-    }
-    
-    // Permissões de perfis
-    match /permissions/{permId} {
-      allow read, write: if true;
+
+    function hasAuthLink() {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/auth_links/$(request.auth.uid));
     }
 
-    // Logs de auditoria do sistema
+    function currentProfile() {
+      return get(/databases/$(database)/documents/auth_links/$(request.auth.uid)).data;
+    }
+
+    function currentRole() {
+      return hasAuthLink() ? currentProfile().role : null;
+    }
+
+    function currentUserId() {
+      return hasAuthLink() ? currentProfile().userId : null;
+    }
+
+    function currentSectorId() {
+      return hasAuthLink() ? currentProfile().sectorId : null;
+    }
+
+    function isAdmin() {
+      return currentRole() == 'admin';
+    }
+
+    // "gestor" e "lider" têm o mesmo nível de gestão de setor no app hoje
+    // (ver roleKey em App.tsx: currentUser.role === 'lider' ? 'gestor' : ...)
+    function isGestor() {
+      return currentRole() == 'gestor' || currentRole() == 'lider';
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // auth_links: cada sessão só enxerga e só grava o PRÓPRIO vínculo.
+    // É assim que uma sessão anônima ou do Google se conecta ao usuário,
+    // papel e setor reais logo após o login.
+    // ─────────────────────────────────────────────────────────────────
+    match /auth_links/{uid} {
+      allow read, write: if isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Setores: leitura para qualquer sessão autenticada (inclui a anônima
+    // usada pelo login por CPF/senha — a tela de login e o app em geral
+    // precisam da lista de setores antes mesmo de existir um auth_link).
+    // Escrita restrita a quem gerencia a estrutura organizacional.
+    match /sectors/{sectorId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isGestor();
+    }
+
+    // Documentos do sistema (POPs, ATRs, ITs)
+    match /pops/{popId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isGestor();
+    }
+
+    match /atrs/{atrId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isGestor();
+    }
+
+    match /its/{itId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isGestor();
+    }
+
+    // Funcionários
+    match /employees/{employeeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isGestor();
+    }
+
+    // Usuários (contas de acesso, incluindo hash de senha). Precisa
+    // continuar legível por qualquer sessão autenticada porque o login
+    // por CPF/senha consulta esta coleção ANTES de terminar de logar
+    // (ainda não dá pra checar papel/setor nesse momento) — mas já exige
+    // pelo menos uma sessão do Firebase (o que barra acesso direto de
+    // fora do app). Escrita: admin/gestor (gestão de contas) ou o próprio
+    // usuário dono da sessão (troca de senha, primeiro acesso).
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isGestor() || currentUserId() == userId;
+    }
+
+    // Permissões de perfis — só admin define o que cada papel pode fazer.
+    match /permissions/{permId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Logs de auditoria do sistema: qualquer sessão autenticada pode
+    // registrar um evento; só admin lê o histórico completo.
     match /system_logs/{logId} {
-      allow read, write: if true;
+      allow create: if isAuthenticated();
+      allow read: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Módulo de guarda de documentos (guarda controlada por setor).
+    // Leitura: admin, ou setor dono do documento, ou setor listado em
+    // extraViewerSectorIds. Criação: admin/gestor. Edição/eliminação:
+    // admin, ou gestor do próprio setor do documento.
+    // ─────────────────────────────────────────────────────────────────
+    match /guarded_documents/{docId} {
+      allow read: if isAdmin()
+        || currentSectorId() == resource.data.sectorId
+        || (resource.data.extraViewerSectorIds is list
+            && currentSectorId() in resource.data.extraViewerSectorIds);
+
+      allow create: if isAdmin() || isGestor();
+
+      allow update, delete: if isAdmin()
+        || (isGestor() && currentSectorId() == resource.data.sectorId);
     }
   }
 }

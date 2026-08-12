@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -10,6 +10,7 @@ import {
   getDocFromServer,
   serverTimestamp
 } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // Carregar fallback do firebase-applet-config.json se disponível
 import appletConfigJson from '../../firebase-applet-config.json';
@@ -35,6 +36,26 @@ export const db = getFirestore(app, appletConfig.firestoreDatabaseId || undefine
 
 // Autenticação Firebase
 export const auth = getAuth(app);
+
+// Firebase Storage (guarda de documentos — usa o mesmo bucket já
+// configurado em firebase-applet-config.json / VITE_FIREBASE_STORAGE_BUCKET)
+export const storage = getStorage(app);
+
+/**
+ * Garante que exista uma sessão do Firebase Auth (mesmo que anônima) antes de
+ * ler/gravar no Firestore. O login principal do app (CPF/matrícula + senha,
+ * em src/lib/userManagement.ts) é 100% client-side e nunca chama o Firebase
+ * Auth — por isso, sem isso, `request.auth` fica `null` nas Firestore Rules
+ * para praticamente todo mundo. Login anônimo funciona como "ponte": toda
+ * sessão do app (por senha ou por Google) passa a ter um `request.auth.uid`
+ * válido, e o vínculo com o usuário/papel/setor reais é feito à parte em
+ * `auth_links/{uid}` (ver src/lib/authLink.ts).
+ */
+export async function ensureAnonymousAuth(): Promise<string> {
+  if (auth.currentUser) return auth.currentUser.uid;
+  const cred = await signInAnonymously(auth);
+  return cred.user.uid;
+}
 
 /**
  * Função utilitária para verificar se a gravação realmente persistiu no servidor Firestore.
