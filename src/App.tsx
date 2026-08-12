@@ -2154,6 +2154,7 @@ export default function App() {
             guardedDocuments={guardedDocuments}
             currentUser={currentUser}
             currentUserEmployee={currentUserEmployee}
+            setGuardedDocuments={setGuardedDocuments}
           />
         ) : currentView === 'workspace' ? (
           <GoogleWorkspaceManager

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Folder,
@@ -12,7 +12,8 @@ import {
   ShieldAlert,
   X,
   Inbox,
-  Building
+  Building,
+  UploadCloud
 } from 'lucide-react';
 import { Employee, GuardedDocument, SectorData, UserAccount } from '../types';
 import {
@@ -21,12 +22,14 @@ import {
   DOCUMENT_STATUS_DOT,
   DOCUMENT_STATUS_LABEL
 } from '../utils/guardedDocuments';
+import UploadDocumentModal from './UploadDocumentModal';
 
 interface DocumentsViewProps {
   sectors: SectorData[];
   guardedDocuments: GuardedDocument[];
   currentUser: UserAccount | null;
   currentUserEmployee?: Employee | null;
+  setGuardedDocuments: React.Dispatch<React.SetStateAction<GuardedDocument[]>>;
 }
 
 function formatBytes(bytes: number): string {
@@ -48,14 +51,18 @@ export default function DocumentsView({
   sectors,
   guardedDocuments,
   currentUser,
-  currentUserEmployee
+  currentUserEmployee,
+  setGuardedDocuments
 }: DocumentsViewProps) {
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [historyDoc, setHistoryDoc] = useState<GuardedDocument | null>(null);
   const [auditDoc, setAuditDoc] = useState<GuardedDocument | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
+  const isGestor = currentUser?.role === 'gestor' || currentUser?.role === 'lider';
+  const canUpload = isAdmin || isGestor;
 
   // Setor do próprio usuário logado (pra dar uma dica visual de qual
   // pasta é "a dele" — a segurança de verdade já vem do Firestore: o
@@ -157,23 +164,35 @@ export default function DocumentsView({
 
   return (
     <div className="space-y-6">
-      {/* Busca global */}
-      <div className="relative">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          placeholder="Buscar documento por nome ou tipo..."
-          className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all font-medium"
-        />
-        {searchQuery && (
+      {/* Busca global + Enviar Documento */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Buscar documento por nome ou tipo..."
+            className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all font-medium"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {canUpload && (
           <button
             type="button"
-            onClick={() => setSearchQuery('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+            onClick={() => setShowUploadModal(true)}
+            className="shrink-0 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            <UploadCloud className="w-4 h-4" /> Enviar Documento
           </button>
         )}
       </div>
@@ -216,7 +235,15 @@ export default function DocumentsView({
             <div className="text-center py-16 text-slate-400 dark:text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
               <Inbox className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="text-sm font-medium">Nenhum documento nesta pasta ainda.</p>
-              <p className="text-xs mt-1">O envio de documentos chega em breve.</p>
+              {canUpload && (
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(true)}
+                  className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" /> Enviar o primeiro documento
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-2.5">{docsInSelectedSector.map(renderDocumentRow)}</div>
@@ -379,6 +406,22 @@ export default function DocumentsView({
               )}
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal: enviar documento */}
+      <AnimatePresence>
+        {showUploadModal && (
+          <UploadDocumentModal
+            sectors={sectors}
+            initialSectorId={selectedSectorId}
+            currentUser={currentUser}
+            currentUserEmployee={currentUserEmployee}
+            onClose={() => setShowUploadModal(false)}
+            onSaved={newDoc => {
+              setGuardedDocuments(prev => [...prev, newDoc]);
+            }}
+          />
         )}
       </AnimatePresence>
     </div>

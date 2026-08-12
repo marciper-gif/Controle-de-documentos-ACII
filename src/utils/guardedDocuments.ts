@@ -1,6 +1,17 @@
 import { GuardedDocument } from '../types';
 
 /**
+ * retentionUntil = uploadedAt + retentionYears (item da especificação:
+ * "calculado = uploadedAt + retentionYears"). Recebe o ISO de referência
+ * (normalmente "agora", no upload; ou a data atual, ao renovar guarda).
+ */
+export function calculateRetentionUntil(fromIso: string, retentionYears: number): string {
+  const date = new Date(fromIso);
+  date.setFullYear(date.getFullYear() + retentionYears);
+  return date.toISOString();
+}
+
+/**
  * Quantos dias faltam para o documento vencer, com base em retentionUntil.
  * Negativo = já venceu há N dias.
  */
