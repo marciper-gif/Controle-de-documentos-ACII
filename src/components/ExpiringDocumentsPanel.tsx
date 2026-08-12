@@ -15,6 +15,9 @@ interface ExpiringDocumentsPanelProps {
   currentUser: UserAccount | null;
   mySectorId: string | null;
   setGuardedDocuments: React.Dispatch<React.SetStateAction<GuardedDocument[]>>;
+  // item 6 da especificação: canManageRetention cobre TANTO renovar
+  // QUANTO marcar para eliminação — concede a alguém sem ser admin/gestor.
+  canManageRetention?: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -29,7 +32,8 @@ export default function ExpiringDocumentsPanel({
   guardedDocuments,
   currentUser,
   mySectorId,
-  setGuardedDocuments
+  setGuardedDocuments,
+  canManageRetention = false
 }: ExpiringDocumentsPanelProps) {
   const [expanded, setExpanded] = useState(true);
   const [renewingDoc, setRenewingDoc] = useState<GuardedDocument | null>(null);
@@ -37,19 +41,22 @@ export default function ExpiringDocumentsPanel({
 
   const isAdmin = currentUser?.role === 'admin';
   const isGestor = currentUser?.role === 'gestor' || currentUser?.role === 'lider';
-  const canManage = isAdmin || isGestor;
+  // Admin/gestor sempre podem; canManageRetention (item 6) delega renovar
+  // E marcar para eliminação a outro perfil, sem precisar ser admin/gestor.
+  const canManage = isAdmin || isGestor || canManageRetention;
+  const canDispose = isAdmin || canManageRetention;
 
-  // "Visível para admin e gestor do setor correspondente" (item 5). Um
-  // gestor só gerencia vencimentos do próprio setor; admin vê tudo que
-  // já chegou (o Firestore já filtrou por setor pra quem não é admin).
+  // "Visível para admin e gestor do setor correspondente" (item 5). Quem
+  // não é admin só gerencia vencimentos do próprio setor; admin vê tudo
+  // que já chegou (o Firestore já filtrou por setor pra quem não é admin).
   const relevantDocs = useMemo(() => {
     return guardedDocuments
-      .filter(doc => isAdmin || (isGestor && doc.sectorId === mySectorId))
+      .filter(doc => isAdmin || ((isGestor || canManageRetention) && doc.sectorId === mySectorId))
       .map(doc => ({ doc, status: computeDocumentStatus(doc) }))
       .filter(({ status }) => status === 'vencendo' || status === 'vencido')
       // Ordenado por proximidade do vencimento — mais urgente primeiro.
       .sort((a, b) => new Date(a.doc.retentionUntil).getTime() - new Date(b.doc.retentionUntil).getTime());
-  }, [guardedDocuments, isAdmin, isGestor, mySectorId]);
+  }, [guardedDocuments, isAdmin, isGestor, canManageRetention, mySectorId]);
 
   if (!canManage || relevantDocs.length === 0) return null;
 
@@ -87,7 +94,7 @@ export default function ExpiringDocumentsPanel({
   };
 
   const handleDispose = (doc: GuardedDocument) => {
-    if (!isAdmin) return;
+    if (!canDispose) return;
     const confirmed = window.confirm(
       `Marcar "${doc.title}" para eliminação?\n\nIsso só sinaliza o documento como eliminado — o arquivo continua no Storage até uma exclusão física manual separada.`
     );
@@ -160,7 +167,7 @@ export default function ExpiringDocumentsPanel({
                       >
                         <RotateCcw className="w-3.5 h-3.5" /> Renovar
                       </button>
-                      {isAdmin && (
+                      {canDispose && (
                         <button
                           type="button"
                           onClick={() => handleDispose(doc)}

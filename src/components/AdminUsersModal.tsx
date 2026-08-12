@@ -1101,6 +1101,52 @@ export default function AdminUsersModal({
                         <p className="text-[10px] text-slate-400 mt-0.5">Permite criar, editar ou excluir documentos e fichas técnicas.</p>
                       </div>
                     </label>
+
+                    <div className="pt-2.5 mt-1 border-t border-slate-200 dark:border-slate-800">
+                      <span className="text-3xs font-black uppercase tracking-widest text-rose-500/80">Guarda de Documentos</span>
+                    </div>
+
+                    <label className="flex items-start gap-2.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={profilePermissions.colaborador.canUploadDocuments || false}
+                        onChange={(e) => {
+                          onUpdatePermissions({
+                            ...profilePermissions,
+                            colaborador: {
+                              ...profilePermissions.colaborador,
+                              canUploadDocuments: e.target.checked
+                            }
+                          });
+                        }}
+                        className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 group-hover:text-emerald-500 transition-colors">Enviar documentos / novas versões</span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Permite enviar documentos ao módulo de guarda e reenviar novas versões, mesmo sem ser gestor.</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-2.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={profilePermissions.colaborador.canManageRetention || false}
+                        onChange={(e) => {
+                          onUpdatePermissions({
+                            ...profilePermissions,
+                            colaborador: {
+                              ...profilePermissions.colaborador,
+                              canManageRetention: e.target.checked
+                            }
+                          });
+                        }}
+                        className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 group-hover:text-emerald-500 transition-colors">Renovar guarda / marcar para eliminação</span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Permite gerenciar documentos vencendo/vencidos do próprio setor no painel de vencimentos.</p>
+                      </div>
+                    </label>
                   </div>
                 </div>
 
@@ -1233,6 +1279,68 @@ export default function AdminUsersModal({
                       </div>
                     </label>
 
+                    <div className="pt-2.5 mt-1 border-t border-slate-200 dark:border-slate-800">
+                      <span className="text-3xs font-black uppercase tracking-widest text-rose-500/80">Guarda de Documentos</span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Gestor/Líder já pode enviar e gerenciar vencimentos no próprio setor por padrão. Desative aqui se quiser restringir.</p>
+                    </div>
+
+                    <label className="flex items-start gap-2.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={profilePermissions.gestor?.canUploadDocuments ?? profilePermissions.lider?.canUploadDocuments ?? true}
+                        onChange={(e) => {
+                          const updatedGestor = {
+                            ...(profilePermissions.gestor || profilePermissions.lider || {
+                              canSeeAllDocs: false,
+                              canSeeEmployees: true,
+                              canSeeSectors: true,
+                              canEditEmployees: true,
+                              canEditDocs: false
+                            }),
+                            canUploadDocuments: e.target.checked
+                          };
+                          onUpdatePermissions({
+                            ...profilePermissions,
+                            gestor: updatedGestor,
+                            lider: updatedGestor
+                          });
+                        }}
+                        className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 group-hover:text-emerald-500 transition-colors">Enviar documentos / novas versões</span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Permite enviar documentos ao módulo de guarda e reenviar novas versões.</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-2.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={profilePermissions.gestor?.canManageRetention ?? profilePermissions.lider?.canManageRetention ?? true}
+                        onChange={(e) => {
+                          const updatedGestor = {
+                            ...(profilePermissions.gestor || profilePermissions.lider || {
+                              canSeeAllDocs: false,
+                              canSeeEmployees: true,
+                              canSeeSectors: true,
+                              canEditEmployees: true,
+                              canEditDocs: false
+                            }),
+                            canManageRetention: e.target.checked
+                          };
+                          onUpdatePermissions({
+                            ...profilePermissions,
+                            gestor: updatedGestor,
+                            lider: updatedGestor
+                          });
+                        }}
+                        className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 group-hover:text-emerald-500 transition-colors">Renovar guarda / marcar para eliminação</span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Permite gerenciar documentos vencendo/vencidos do próprio setor no painel de vencimentos.</p>
+                      </div>
+                    </label>
                   </div>
                 </div>
               </div>

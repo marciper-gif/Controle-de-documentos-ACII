@@ -113,6 +113,12 @@ export interface ProfilePermissionItem {
   canSeeSectors: boolean;
   canEditEmployees: boolean;
   canEditDocs: boolean;
+  // Módulo de guarda de documentos (item 6 da especificação). Opcionais
+  // para não quebrar permissões já salvas no Firestore/localStorage
+  // antes desta extensão — ausentes é tratado como false onde são lidos.
+  canUploadDocuments?: boolean;    // enviar documento / nova versão
+  canManageRetention?: boolean;    // renovar guarda vencendo/vencida
+  canDeleteDocuments?: boolean;    // reservado para exclusão física futura — hoje só admin, sem UI própria
 }
 
 export interface ProfilePermissions {

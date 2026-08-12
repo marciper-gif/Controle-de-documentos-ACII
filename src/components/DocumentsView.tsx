@@ -18,7 +18,7 @@ import {
   AlertCircle,
   Loader2
 } from 'lucide-react';
-import { DocumentVersion, Employee, GuardedDocument, SectorData, UserAccount } from '../types';
+import { DocumentVersion, Employee, GuardedDocument, ProfilePermissionItem, SectorData, UserAccount } from '../types';
 import {
   computeDocumentStatus,
   DOCUMENT_STATUS_CLASSES,
@@ -35,6 +35,7 @@ interface DocumentsViewProps {
   currentUser: UserAccount | null;
   currentUserEmployee?: Employee | null;
   setGuardedDocuments: React.Dispatch<React.SetStateAction<GuardedDocument[]>>;
+  userPermissions?: ProfilePermissionItem;
 }
 
 function formatBytes(bytes: number): string {
@@ -57,7 +58,8 @@ export default function DocumentsView({
   guardedDocuments,
   currentUser,
   currentUserEmployee,
-  setGuardedDocuments
+  setGuardedDocuments,
+  userPermissions
 }: DocumentsViewProps) {
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,7 +76,11 @@ export default function DocumentsView({
 
   const isAdmin = currentUser?.role === 'admin';
   const isGestor = currentUser?.role === 'gestor' || currentUser?.role === 'lider';
-  const canUpload = isAdmin || isGestor;
+  // Admin/gestor sempre podem (regra própria do storage.rules); além
+  // disso, qualquer perfil com canUploadDocuments concedido explicitamente
+  // (item 6 da especificação) também ganha o botão — a garantia real
+  // continua nas Firestore/Storage Rules, isso é só a UI.
+  const canUpload = isAdmin || isGestor || !!userPermissions?.canUploadDocuments;
 
   const uploaderName = currentUser?.name || currentUser?.username || 'Usuário';
 
@@ -287,6 +293,7 @@ export default function DocumentsView({
         currentUser={currentUser}
         mySectorId={mySectorId}
         setGuardedDocuments={setGuardedDocuments}
+        canManageRetention={!!userPermissions?.canManageRetention}
       />
 
       {/* Busca global + Enviar Documento */}

@@ -273,21 +273,30 @@ export default function App() {
         canSeeEmployees: true,
         canSeeSectors: true,
         canEditEmployees: false,
-        canEditDocs: false
+        canEditDocs: false,
+        canUploadDocuments: false,
+        canManageRetention: false,
+        canDeleteDocuments: false
       },
       gestor: {
         canSeeAllDocs: true,
         canSeeEmployees: true,
         canSeeSectors: true,
         canEditEmployees: true,
-        canEditDocs: true
+        canEditDocs: true,
+        canUploadDocuments: true,
+        canManageRetention: true,
+        canDeleteDocuments: false
       },
       lider: {
         canSeeAllDocs: true,
         canSeeEmployees: true,
         canSeeSectors: true,
         canEditEmployees: true,
-        canEditDocs: true
+        canEditDocs: true,
+        canUploadDocuments: true,
+        canManageRetention: true,
+        canDeleteDocuments: false
       }
     };
     if (!saved) {
@@ -332,7 +341,10 @@ export default function App() {
         canSeeEmployees: false,
         canSeeSectors: false,
         canEditEmployees: false,
-        canEditDocs: false
+        canEditDocs: false,
+        canUploadDocuments: false,
+        canManageRetention: false,
+        canDeleteDocuments: false
       };
     }
     if (currentUser.role === 'admin') {
@@ -341,7 +353,10 @@ export default function App() {
         canSeeEmployees: true,
         canSeeSectors: true,
         canEditEmployees: true,
-        canEditDocs: true
+        canEditDocs: true,
+        canUploadDocuments: true,
+        canManageRetention: true,
+        canDeleteDocuments: true
       };
     }
     const roleKey = currentUser.role === 'lider' ? 'gestor' : currentUser.role;
@@ -350,7 +365,10 @@ export default function App() {
       canSeeEmployees: false,
       canSeeSectors: false,
       canEditEmployees: false,
-      canEditDocs: false
+      canEditDocs: false,
+      canUploadDocuments: false,
+      canManageRetention: false,
+      canDeleteDocuments: false
     };
   }, [currentUser, profilePermissions]);
 
@@ -2155,6 +2173,7 @@ export default function App() {
             currentUser={currentUser}
             currentUserEmployee={currentUserEmployee}
             setGuardedDocuments={setGuardedDocuments}
+            userPermissions={userPermissions}
           />
         ) : currentView === 'workspace' ? (
           <GoogleWorkspaceManager
