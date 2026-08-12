@@ -59,7 +59,8 @@ import SplashScreen from './components/SplashScreen';
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { onSnapshot, collection, doc } from 'firebase/firestore';
-import { auth, db } from './lib/firebase';
+import { auth, db, ensureAnonymousAuth } from './lib/firebase';
+import { linkFirebaseAuthToAppUser } from './lib/authLink';
 import {
   seedDatabaseIfEmpty,
   dbSaveSector,
@@ -252,6 +253,12 @@ export default function App() {
     }
   });
 
+  // Fica `true` assim que existir QUALQUER sessão do Firebase Auth (anônima
+  // ponte para login por CPF/senha, ou Google). As leituras/escritas no
+  // Firestore só começam depois disso, porque as regras agora exigem
+  // `request.auth != null`.
+  const [authReady, setAuthReady] = useState(false);
+
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
   const [profilePermissions, rawSetProfilePermissions] = useState<ProfilePermissions>(() => {
@@ -368,6 +375,14 @@ export default function App() {
   const handleLogin = (user: UserAccount) => {
     setCurrentUser(user);
     localStorage.setItem('ms-current-user', JSON.stringify(user));
+
+    // Login por CPF/senha não passa pelo Firebase Auth (é validado no
+    // cliente). Garantimos uma sessão anônima e vinculamos a esse usuário
+    // em auth_links/{uid}, para que as Firestore Rules saibam quem é e
+    // qual o papel/setor dessa sessão.
+    ensureAnonymousAuth()
+      .then(uid => linkFirebaseAuthToAppUser(uid, user, employees, sectors))
+      .catch(e => console.warn('Falha ao preparar sessão autenticada após login:', e));
   };
 
   const handleLogout = () => {
@@ -599,6 +614,14 @@ export default function App() {
   // Listen to Firebase Auth state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser && firebaseUser.isAnonymous) {
+        // Sessão-ponte (ver ensureAnonymousAuth): não é um login de verdade,
+        // só destrava as leituras/escritas do Firestore para quem entrou
+        // por CPF/senha. Não mexe em currentUser.
+        setAuthReady(true);
+        return;
+      }
+
       if (firebaseUser) {
         // Logged in via Google Sign-In
         const userEmail = firebaseUser.email || '';
@@ -646,10 +669,23 @@ export default function App() {
 
         setCurrentUser(firebaseUserAccount);
         localStorage.setItem('ms-current-user', JSON.stringify(firebaseUserAccount));
+        setAuthReady(true);
+
+        // Vincula esta sessão real do Firebase Auth ao usuário/papel/setor,
+        // para as Firestore Rules (mesmo mecanismo do login por CPF/senha).
+        linkFirebaseAuthToAppUser(firebaseUser.uid, firebaseUserAccount, employees, sectors);
 
         // Seed DB if empty
         await seedDatabaseIfEmpty();
       } else {
+        // Nenhuma sessão do Firebase Auth ainda: cria uma anônima para que
+        // o login por CPF/senha (que não usa Firebase Auth) consiga ler/
+        // gravar no Firestore assim que terminar. O listener acima é
+        // rechamado automaticamente quando essa sessão anônima é criada.
+        ensureAnonymousAuth().catch(e =>
+          console.error('Falha ao criar sessão anônima do Firebase Auth:', e)
+        );
+
         // If logged out from Firebase Auth, only reset currentUser if they were a Google user
         setCurrentUser(prev => {
           if (prev && !prev.password) {
@@ -662,11 +698,13 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [employees]);
+  }, [employees, sectors]);
 
   // Synchronize collections with Firestore for real-time multi-device persistence
   useEffect(() => {
-    if (!db) return;
+    // Espera existir sessão do Firebase Auth (mesmo anônima) antes de abrir
+    // qualquer listener — as Firestore Rules agora exigem request.auth.
+    if (!db || !authReady) return;
 
     // Seed database if empty on load
     seedDatabaseIfEmpty();
@@ -803,7 +841,7 @@ export default function App() {
       unsubUsers();
       unsubPermissions();
     };
-  }, [currentUser]);
+  }, [currentUser, authReady]);
 
   // Check if a user has access to a document (Colaborador = only explicitly linked, Gestor = explicitly linked + sector/group, Admin = all)
   const userHasAccessToDoc = useCallback((doc: ATR | POP | IT, docType: 'atr' | 'pop' | 'it') => {

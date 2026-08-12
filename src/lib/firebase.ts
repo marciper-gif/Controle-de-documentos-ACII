@@ -1,7 +1,7 @@
-import { app, db, auth, salvarDocumento, deletarDocumento, verificarPersistencia } from '../config/firebase';
+import { app, db, auth, storage, salvarDocumento, deletarDocumento, verificarPersistencia, ensureAnonymousAuth } from '../config/firebase';
 import { doc, getDocFromServer } from 'firebase/firestore';
 
-export { app, db, auth, salvarDocumento, deletarDocumento, verificarPersistencia };
+export { app, db, auth, storage, salvarDocumento, deletarDocumento, verificarPersistencia, ensureAnonymousAuth };
 
 export enum OperationType {
   CREATE = 'create',

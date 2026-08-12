@@ -1,0 +1,96 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─────────────────────────────────────────────────────────────────
+    // Estas regras leem o mesmo Firestore do app (regras "cross-service",
+    // ver https://firebase.blog/posts/2022/09/announcing-cross-service-security-rules/)
+    // para saber quem está pedindo o quê — o mesmo vínculo auth_links/{uid}
+    // usado em firestore.rules (ver src/lib/authLink.ts para como ele é
+    // criado). O Storage Rules exige o caminho completo do banco, incluindo
+    // o nome do banco — este projeto usa um Firestore NOMEADO (não o
+    // "(default)"), então o ID abaixo precisa bater com
+    // firestoreDatabaseId em firebase-applet-config.json. Se o banco for
+    // recriado/renomeado, este valor tem que ser atualizado nos dois
+    // lugares onde aparece abaixo.
+    // ─────────────────────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function authProfile() {
+      return firestore.get(/databases/ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900/documents/auth_links/$(request.auth.uid)).data;
+    }
+
+    function currentRole() {
+      return isAuthenticated() ? authProfile().role : null;
+    }
+
+    function currentSectorId() {
+      return isAuthenticated() ? authProfile().sectorId : null;
+    }
+
+    function isAdmin() {
+      return currentRole() == 'admin';
+    }
+
+    function isGestor() {
+      return currentRole() == 'gestor' || currentRole() == 'lider';
+    }
+
+    // Setores extras com permissão de visualização, lidos do próprio
+    // documento em guarded_documents/{documentId}. Só é avaliada quando
+    // as checagens mais baratas acima (admin / setor dono) já falharam,
+    // graças ao curto-circuito do "||" — então o total de leituras extra
+    // ao Firestore por avaliação de regra fica em no máximo 2 (auth_links
+    // + guarded_documents), dentro do limite do Firebase para regras
+    // cross-service.
+    function docExtraViewerSectors(documentId) {
+      return firestore.get(/databases/ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900/documents/guarded_documents/$(documentId)).data.extraViewerSectorIds;
+    }
+
+    // Validação server-side das restrições de upload do item 2 da
+    // especificação (o modal de envio, item 4.3, também valida no
+    // cliente — isto é só uma segunda barreira, defesa em profundidade).
+    function isValidDocumentUpload() {
+      return request.resource.size <= 20 * 1024 * 1024 &&
+        request.resource.contentType.matches(
+          'application/pdf'
+          + '|application/msword'
+          + '|application/vnd\\.openxmlformats-officedocument\\.wordprocessingml\\.document'
+          + '|application/vnd\\.ms-excel'
+          + '|application/vnd\\.openxmlformats-officedocument\\.spreadsheetml\\.sheet'
+          + '|image/jpeg'
+          + '|image/png'
+        );
+    }
+
+    // documentos/{sectorId}/{documentId}/v{version}_{fileName}
+    match /documentos/{sectorId}/{documentId}/{fileName} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        currentSectorId() == sectorId ||
+        (docExtraViewerSectors(documentId) is list && currentSectorId() in docExtraViewerSectors(documentId))
+      );
+
+      // Upload/nova versão: admin ou gestor do próprio setor da pasta.
+      // TODO (etapa 9 da especificação): incluir aqui também quem tiver
+      // canUploadDocuments == true no perfil, quando ProfilePermissions
+      // for estendido e espelhado em auth_links.
+      allow create, update: if isAuthenticated() &&
+        (isAdmin() || (isGestor() && currentSectorId() == sectorId)) &&
+        isValidDocumentUpload();
+
+      // Exclusão física do arquivo: só admin. "Marcar para eliminação"
+      // (item 5 da especificação) só muda o status no Firestore — não
+      // apaga o arquivo do Storage automaticamente.
+      allow delete: if isAdmin();
+    }
+
+    // Qualquer outro caminho no bucket: fechado por padrão.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
