@@ -11,6 +11,15 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
   const [displayedText, setDisplayedText] = useState('');
   const fullSlogan = 'Excelência em cada processo, qualidade em cada resultado.';
 
+  // Velocidade da máquina de escrever (ms por caractere)
+  const TYPING_SPEED_MS = 40;
+  // Tempo de leitura extra após a frase terminar de aparecer
+  const READING_BUFFER_MS = 2000;
+  // Tempo total = tempo real de digitação da frase + tempo de leitura
+  // (garante que a mensagem sempre termine de aparecer E dê tempo de ler,
+  // em vez de um valor fixo desconectado do conteúdo)
+  const SPLASH_DURATION_MS = fullSlogan.length * TYPING_SPEED_MS + READING_BUFFER_MS;
+
   useEffect(() => {
     // Typewriter effect for the slogan
     let currentIdx = 0;
@@ -21,12 +30,12 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       } else {
         clearInterval(typingInterval);
       }
-    }, 40);
+    }, TYPING_SPEED_MS);
 
-    // 6 seconds timer before triggering completion transition (gives plenty of time to read the slogan)
+    // Timer dinâmico: espera a frase terminar de digitar + tempo de leitura
     const timer = setTimeout(() => {
       setIsVisible(false);
-    }, 6000);
+    }, SPLASH_DURATION_MS);
 
     return () => {
       clearInterval(typingInterval);
