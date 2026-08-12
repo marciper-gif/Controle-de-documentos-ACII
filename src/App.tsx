@@ -39,7 +39,8 @@ import {
   Glasses,
   Cloud,
   Download,
-  Loader2
+  Loader2,
+  Archive
 } from 'lucide-react';
 
 import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry, GuardedDocument } from './types';
@@ -55,6 +56,7 @@ import EmployeeManager from './components/EmployeeManager';
 import SectorManager from './components/SectorManager';
 import GoogleWorkspaceManager from './components/GoogleWorkspaceManager';
 import SplashScreen from './components/SplashScreen';
+import DocumentsView from './components/DocumentsView';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -1033,8 +1035,8 @@ export default function App() {
     }
   }, [employees]);
 
-  // Current main view tab selection: 'portal' | 'employees' | 'sectors' | 'workspace'
-  const [currentView, setCurrentView] = useState<'portal' | 'employees' | 'sectors' | 'workspace'>('portal');
+  // Current main view tab selection: 'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace'
+  const [currentView, setCurrentView] = useState<'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace'>('portal');
 
   // Google Workspace Preselection states
   const [preselectedDocId, setPreselectedDocId] = useState<string>('');
@@ -1890,6 +1892,28 @@ export default function App() {
 
               <button
                 onClick={() => {
+                  setCurrentView('documentos');
+                  setSelectedDocId('');
+                }}
+                className={`relative px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                  currentView === 'documentos'
+                    ? 'text-rose-600 dark:text-rose-400 font-black'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+                }`}
+              >
+                {currentView === 'documentos' && (
+                  <motion.div
+                    layoutId="activeNavBadge"
+                    className="absolute inset-0 bg-white dark:bg-slate-900 border border-rose-500/30 rounded-lg shadow-2xs"
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  />
+                )}
+                <Archive className="w-3.5 h-3.5 z-10" />
+                <span className="z-10">Documentos</span>
+              </button>
+
+              <button
+                onClick={() => {
                   setCurrentView('workspace');
                   setSelectedDocId('');
                   setPreselectedDocId('');
@@ -2034,6 +2058,7 @@ export default function App() {
               {currentView === 'portal' && <><BookOpen className="w-3.5 h-3.5 text-sky-500" /> Portal de Documentos</>}
               {currentView === 'employees' && <><Users className="w-3.5 h-3.5 text-indigo-500" /> Gestão de Colaboradores</>}
               {currentView === 'sectors' && <><Building className="w-3.5 h-3.5 text-amber-500" /> Matriz de Setores</>}
+              {currentView === 'documentos' && <><Archive className="w-3.5 h-3.5 text-rose-500" /> Guarda de Documentos</>}
               {currentView === 'workspace' && <><Cloud className="w-3.5 h-3.5 text-emerald-500" /> Google Workspace Integration</>}
             </span>
           </div>
@@ -2073,6 +2098,7 @@ export default function App() {
             {currentView === 'portal' && 'Portal de Documentos'}
             {currentView === 'employees' && 'Gestão de Colaboradores'}
             {currentView === 'sectors' && 'Matriz de Setores'}
+            {currentView === 'documentos' && 'Guarda de Documentos'}
             {currentView === 'workspace' && 'Google Workspace Integration'}
           </button>
 
@@ -2121,6 +2147,13 @@ export default function App() {
             employees={employees}
             pops={pops}
             atrs={atrs}
+          />
+        ) : currentView === 'documentos' ? (
+          <DocumentsView
+            sectors={sectors}
+            guardedDocuments={guardedDocuments}
+            currentUser={currentUser}
+            currentUserEmployee={currentUserEmployee}
           />
         ) : currentView === 'workspace' ? (
           <GoogleWorkspaceManager
