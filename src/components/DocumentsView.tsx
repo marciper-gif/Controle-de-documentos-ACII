@@ -23,6 +23,7 @@ import {
   DOCUMENT_STATUS_LABEL
 } from '../utils/guardedDocuments';
 import UploadDocumentModal from './UploadDocumentModal';
+import ExpiringDocumentsPanel from './ExpiringDocumentsPanel';
 
 interface DocumentsViewProps {
   sectors: SectorData[];
@@ -164,6 +165,14 @@ export default function DocumentsView({
 
   return (
     <div className="space-y-6">
+      {/* Painel de vencimentos (item 5 da especificação) */}
+      <ExpiringDocumentsPanel
+        guardedDocuments={guardedDocuments}
+        currentUser={currentUser}
+        mySectorId={mySectorId}
+        setGuardedDocuments={setGuardedDocuments}
+      />
+
       {/* Busca global + Enviar Documento */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
