@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { KeyRound, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { UserAccount } from '../types';
 import { trocarSenha } from '../lib/userManagement';
+import { loginBackend } from '../lib/authBackend';
 
 interface TrocaSenhaProps {
   key?: string;
@@ -64,6 +65,14 @@ export default function TrocaSenha({ userId, userAccount, onSuccess, onCancel }:
         status: 'Ativo',
         lastPasswordChange: res.lastPasswordChange || new Date().toLocaleDateString('pt-BR')
       };
+
+      // Abre a sessão real do Firebase Auth já com a senha nova (a antiga
+      // não vale mais depois da troca — ver src/lib/authBackend.ts).
+      try {
+        await loginBackend(userAccount.username, novaSenha);
+      } catch (backendErr) {
+        console.warn('Falha ao abrir sessão segura do Firestore após troca de senha:', backendErr);
+      }
 
       onSuccess(updatedUser);
     } catch (err: any) {

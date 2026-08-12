@@ -59,8 +59,8 @@ import SplashScreen from './components/SplashScreen';
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { onSnapshot, collection, doc } from 'firebase/firestore';
-import { auth, db, ensureAnonymousAuth } from './lib/firebase';
-import { linkFirebaseAuthToAppUser } from './lib/authLink';
+import { auth, db } from './lib/firebase';
+import { resolveUserSectorId, syncGoogleClaims } from './lib/authBackend';
 import {
   seedDatabaseIfEmpty,
   dbSaveSector,
@@ -376,13 +376,11 @@ export default function App() {
     setCurrentUser(user);
     localStorage.setItem('ms-current-user', JSON.stringify(user));
 
-    // Login por CPF/senha não passa pelo Firebase Auth (é validado no
-    // cliente). Garantimos uma sessão anônima e vinculamos a esse usuário
-    // em auth_links/{uid}, para que as Firestore Rules saibam quem é e
-    // qual o papel/setor dessa sessão.
-    ensureAnonymousAuth()
-      .then(uid => linkFirebaseAuthToAppUser(uid, user, employees, sectors))
-      .catch(e => console.warn('Falha ao preparar sessão autenticada após login:', e));
+    // A sessão real do Firebase Auth (via /api/login, token com claims de
+    // role/setor) já foi aberta em LoginView/TrocaSenha ANTES de chamar
+    // onLogin — aqui só resta guardar quem é o usuário na UI. Veja
+    // src/lib/authBackend.ts (loginBackend) e o listener onAuthStateChanged
+    // logo abaixo, que libera authReady quando essa sessão chega.
   };
 
   const handleLogout = () => {
@@ -614,78 +612,8 @@ export default function App() {
   // Listen to Firebase Auth state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser && firebaseUser.isAnonymous) {
-        // Sessão-ponte (ver ensureAnonymousAuth): não é um login de verdade,
-        // só destrava as leituras/escritas do Firestore para quem entrou
-        // por CPF/senha. Não mexe em currentUser.
-        setAuthReady(true);
-        return;
-      }
-
-      if (firebaseUser) {
-        // Logged in via Google Sign-In
-        const userEmail = firebaseUser.email || '';
-        const isRuntimeAdmin = userEmail.toLowerCase() === 'marciper@gmail.com';
-
-        // Check if employee with this email exists
-        let matchedEmployee = employees.find(emp => emp.email.toLowerCase() === userEmail.toLowerCase());
-        let userRole: 'admin' | 'gestor' | 'colaborador' | 'lider' = isRuntimeAdmin ? 'admin' : 'colaborador';
-        let employeeId = matchedEmployee?.id;
-
-        if (matchedEmployee) {
-          // Determine default role based on employee's job title
-          const roleLower = matchedEmployee.role.toLowerCase();
-          const isLeadership = roleLower.includes('gerente') || 
-                              roleLower.includes('coordenador') || 
-                              roleLower.includes('diretor') || 
-                              roleLower.includes('supervisor') || 
-                              roleLower.includes('lider') ||
-                              roleLower.includes('gestor');
-          userRole = isLeadership ? 'gestor' : 'colaborador';
-        }
-
-        if (isRuntimeAdmin) {
-          userRole = 'admin';
-        }
-
-        const firebaseUserAccount: UserAccount = {
-          id: firebaseUser.uid,
-          username: userEmail.split('@')[0],
-          name: firebaseUser.displayName || 'Usuário Google',
-          role: userRole,
-          employeeId: employeeId,
-          password: '' // no password needed for Google SSO
-        };
-
-        // Add to users list and update state
-        rawSetUsers(prev => {
-          if (!prev.some(u => u.id === firebaseUserAccount.id)) {
-            const updated = [...prev, firebaseUserAccount];
-            dbSaveUserAccount(firebaseUserAccount);
-            return updated;
-          }
-          return prev;
-        });
-
-        setCurrentUser(firebaseUserAccount);
-        localStorage.setItem('ms-current-user', JSON.stringify(firebaseUserAccount));
-        setAuthReady(true);
-
-        // Vincula esta sessão real do Firebase Auth ao usuário/papel/setor,
-        // para as Firestore Rules (mesmo mecanismo do login por CPF/senha).
-        linkFirebaseAuthToAppUser(firebaseUser.uid, firebaseUserAccount, employees, sectors);
-
-        // Seed DB if empty
-        await seedDatabaseIfEmpty();
-      } else {
-        // Nenhuma sessão do Firebase Auth ainda: cria uma anônima para que
-        // o login por CPF/senha (que não usa Firebase Auth) consiga ler/
-        // gravar no Firestore assim que terminar. O listener acima é
-        // rechamado automaticamente quando essa sessão anônima é criada.
-        ensureAnonymousAuth().catch(e =>
-          console.error('Falha ao criar sessão anônima do Firebase Auth:', e)
-        );
-
+      if (!firebaseUser) {
+        setAuthReady(false);
         // If logged out from Firebase Auth, only reset currentUser if they were a Google user
         setCurrentUser(prev => {
           if (prev && !prev.password) {
@@ -694,7 +622,80 @@ export default function App() {
           }
           return prev;
         });
+        return;
       }
+
+      const isGoogleUser = firebaseUser.providerData.some(p => p.providerId === 'google.com');
+
+      if (!isGoogleUser) {
+        // Sessão aberta via /api/login (custom token, login por CPF/senha —
+        // ver src/lib/authBackend.ts). O token já embute role/sectorId como
+        // claims; currentUser já foi setado em handleLogin/TrocaSenha antes
+        // dessa sessão existir. Só falta liberar as leituras do Firestore.
+        setAuthReady(true);
+        return;
+      }
+
+      // Logged in via Google Sign-In
+      const userEmail = firebaseUser.email || '';
+      const isRuntimeAdmin = userEmail.toLowerCase() === 'marciper@gmail.com';
+
+      // Check if employee with this email exists
+      let matchedEmployee = employees.find(emp => emp.email.toLowerCase() === userEmail.toLowerCase());
+      let userRole: 'admin' | 'gestor' | 'colaborador' | 'lider' = isRuntimeAdmin ? 'admin' : 'colaborador';
+      let employeeId = matchedEmployee?.id;
+
+      if (matchedEmployee) {
+        // Determine default role based on employee's job title
+        const roleLower = matchedEmployee.role.toLowerCase();
+        const isLeadership = roleLower.includes('gerente') ||
+                            roleLower.includes('coordenador') ||
+                            roleLower.includes('diretor') ||
+                            roleLower.includes('supervisor') ||
+                            roleLower.includes('lider') ||
+                            roleLower.includes('gestor');
+        userRole = isLeadership ? 'gestor' : 'colaborador';
+      }
+
+      if (isRuntimeAdmin) {
+        userRole = 'admin';
+      }
+
+      const firebaseUserAccount: UserAccount = {
+        id: firebaseUser.uid,
+        username: userEmail.split('@')[0],
+        name: firebaseUser.displayName || 'Usuário Google',
+        role: userRole,
+        employeeId: employeeId,
+        password: '' // no password needed for Google SSO
+      };
+
+      // Add to users list and update state
+      rawSetUsers(prev => {
+        if (!prev.some(u => u.id === firebaseUserAccount.id)) {
+          const updated = [...prev, firebaseUserAccount];
+          dbSaveUserAccount(firebaseUserAccount);
+          return updated;
+        }
+        return prev;
+      });
+
+      setCurrentUser(firebaseUserAccount);
+      localStorage.setItem('ms-current-user', JSON.stringify(firebaseUserAccount));
+      setAuthReady(true);
+
+      // O Google já autentica sozinho, mas o token dele não vem com as
+      // claims de role/sectorId — sincroniza via /api/set-claims e força
+      // um refresh do token pra elas valerem nas regras.
+      const sectorId = resolveUserSectorId({ employeeId }, employees, sectors);
+      try {
+        await syncGoogleClaims(userRole, sectorId);
+      } catch (e) {
+        console.warn('Falha ao sincronizar papel/setor da sessão Google:', e);
+      }
+
+      // Seed DB if empty
+      await seedDatabaseIfEmpty();
     });
 
     return () => unsubscribe();

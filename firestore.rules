@@ -3,40 +3,25 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─────────────────────────────────────────────────────────────────
-    // O login principal do app (CPF/matrícula + senha) é validado 100%
-    // no cliente (src/lib/userManagement.ts) e NUNCA usa o Firebase Auth
-    // diretamente — só quem entra com "Entrar com o Google" tem uma
-    // sessão real. Por isso o app cria uma sessão anônima do Firebase
-    // Auth como ponte (ensureAnonymousAuth, em src/config/firebase.ts) e
-    // grava o vínculo usuário/papel/setor em auth_links/{uid}
-    // (src/lib/authLink.ts) logo após qualquer login bem-sucedido.
-    // Estas regras dependem desse vínculo para saber quem está pedindo
-    // o quê — sem ele, `request.auth` existe mas não tem papel nenhum.
+    // O login principal do app (CPF/matrícula + senha) é reconferido no
+    // servidor por /api/login.ts (Firebase Admin SDK) — que só então
+    // emite um token de sessão real do Firebase Auth, já com "role" e
+    // "sectorId" embutidos como custom claims. Login por Google usa
+    // /api/set-claims.ts pra ganhar as mesmas claims. Por isso dá pra
+    // confiar direto em request.auth.token.role / .sectorId aqui, sem
+    // nenhuma leitura extra ao Firestore. Ver src/lib/authBackend.ts.
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function hasAuthLink() {
-      return isAuthenticated() &&
-             exists(/databases/$(database)/documents/auth_links/$(request.auth.uid));
-    }
-
-    function currentProfile() {
-      return get(/databases/$(database)/documents/auth_links/$(request.auth.uid)).data;
-    }
-
     function currentRole() {
-      return hasAuthLink() ? currentProfile().role : null;
-    }
-
-    function currentUserId() {
-      return hasAuthLink() ? currentProfile().userId : null;
+      return isAuthenticated() ? request.auth.token.role : null;
     }
 
     function currentSectorId() {
-      return hasAuthLink() ? currentProfile().sectorId : null;
+      return isAuthenticated() ? request.auth.token.sectorId : null;
     }
 
     function isAdmin() {
@@ -49,19 +34,8 @@ service cloud.firestore {
       return currentRole() == 'gestor' || currentRole() == 'lider';
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    // auth_links: cada sessão só enxerga e só grava o PRÓPRIO vínculo.
-    // É assim que uma sessão anônima ou do Google se conecta ao usuário,
-    // papel e setor reais logo após o login.
-    // ─────────────────────────────────────────────────────────────────
-    match /auth_links/{uid} {
-      allow read, write: if isAuthenticated() && request.auth.uid == uid;
-    }
-
-    // Setores: leitura para qualquer sessão autenticada (inclui a anônima
-    // usada pelo login por CPF/senha — a tela de login e o app em geral
-    // precisam da lista de setores antes mesmo de existir um auth_link).
-    // Escrita restrita a quem gerencia a estrutura organizacional.
+    // Setores: leitura para qualquer sessão autenticada. Escrita restrita
+    // a quem gerencia a estrutura organizacional.
     match /sectors/{sectorId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin() || isGestor();
@@ -89,16 +63,15 @@ service cloud.firestore {
       allow write: if isAdmin() || isGestor();
     }
 
-    // Usuários (contas de acesso, incluindo hash de senha). Precisa
-    // continuar legível por qualquer sessão autenticada porque o login
-    // por CPF/senha consulta esta coleção ANTES de terminar de logar
-    // (ainda não dá pra checar papel/setor nesse momento) — mas já exige
-    // pelo menos uma sessão do Firebase (o que barra acesso direto de
-    // fora do app). Escrita: admin/gestor (gestão de contas) ou o próprio
-    // usuário dono da sessão (troca de senha, primeiro acesso).
+    // Usuários (contas de acesso, incluindo hash de senha). Só é lida
+    // hoje pelo /api/login.ts via Admin SDK (que ignora estas regras) e
+    // pela UI já autenticada — então dá pra restringir de verdade,
+    // diferente da versão anterior que precisava manter isso aberto pra
+    // sessão anônima. Escrita: admin/gestor (gestão de contas) ou o
+    // próprio usuário dono da sessão (troca de senha).
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor() || currentUserId() == userId;
+      allow write: if isAdmin() || isGestor() || (isAuthenticated() && request.auth.uid == userId);
     }
 
     // Permissões de perfis — só admin define o que cada papel pode fazer.

@@ -3,32 +3,26 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // ─────────────────────────────────────────────────────────────────
-    // Estas regras leem o mesmo Firestore do app (regras "cross-service",
-    // ver https://firebase.blog/posts/2022/09/announcing-cross-service-security-rules/)
-    // para saber quem está pedindo o quê — o mesmo vínculo auth_links/{uid}
-    // usado em firestore.rules (ver src/lib/authLink.ts para como ele é
-    // criado). O Storage Rules exige o caminho completo do banco, incluindo
-    // o nome do banco — este projeto usa um Firestore NOMEADO (não o
-    // "(default)"), então o ID abaixo precisa bater com
-    // firestoreDatabaseId em firebase-applet-config.json. Se o banco for
-    // recriado/renomeado, este valor tem que ser atualizado nos dois
-    // lugares onde aparece abaixo.
+    // O papel e o setor da sessão vêm como custom claims no token do
+    // Firebase Auth (request.auth.token.role / .sectorId), emitidas por
+    // /api/login.ts e /api/set-claims.ts — ver src/lib/authBackend.ts e
+    // firestore.rules para o desenho completo. Isso evita qualquer
+    // leitura ao Firestore só pra saber quem está pedindo o quê; a única
+    // leitura cross-service que ainda precisamos (firestore.get) é pra
+    // checar extraViewerSectorIds do próprio documento, quando o setor
+    // da sessão não bate com o dono da pasta.
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function authProfile() {
-      return firestore.get(/databases/ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900/documents/auth_links/$(request.auth.uid)).data;
-    }
-
     function currentRole() {
-      return isAuthenticated() ? authProfile().role : null;
+      return isAuthenticated() ? request.auth.token.role : null;
     }
 
     function currentSectorId() {
-      return isAuthenticated() ? authProfile().sectorId : null;
+      return isAuthenticated() ? request.auth.token.sectorId : null;
     }
 
     function isAdmin() {
@@ -40,12 +34,11 @@ service firebase.storage {
     }
 
     // Setores extras com permissão de visualização, lidos do próprio
-    // documento em guarded_documents/{documentId}. Só é avaliada quando
-    // as checagens mais baratas acima (admin / setor dono) já falharam,
-    // graças ao curto-circuito do "||" — então o total de leituras extra
-    // ao Firestore por avaliação de regra fica em no máximo 2 (auth_links
-    // + guarded_documents), dentro do limite do Firebase para regras
-    // cross-service.
+    // documento em guarded_documents/{documentId}. O caminho do banco
+    // precisa vir por extenso, incluindo o nome do banco (não é o
+    // "(default)" — este projeto usa um Firestore nomeado, ver
+    // firestoreDatabaseId em firebase-applet-config.json). Se o banco
+    // for recriado/renomeado, atualizar este ID.
     function docExtraViewerSectors(documentId) {
       return firestore.get(/databases/ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900/documents/guarded_documents/$(documentId)).data.extraViewerSectorIds;
     }
@@ -77,7 +70,7 @@ service firebase.storage {
       // Upload/nova versão: admin ou gestor do próprio setor da pasta.
       // TODO (etapa 9 da especificação): incluir aqui também quem tiver
       // canUploadDocuments == true no perfil, quando ProfilePermissions
-      // for estendido e espelhado em auth_links.
+      // for estendido e essa claim adicionada ao token em /api/login.ts.
       allow create, update: if isAuthenticated() &&
         (isAdmin() || (isGestor() && currentSectorId() == sectorId)) &&
         isValidDocumentUpload();

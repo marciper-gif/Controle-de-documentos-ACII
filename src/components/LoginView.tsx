@@ -5,6 +5,7 @@ import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { UserAccount } from '../types';
 import { fazerLogin } from '../lib/userManagement';
+import { loginBackend } from '../lib/authBackend';
 import TrocaSenha from './TrocaSenha';
 
 interface LoginViewProps {
@@ -51,6 +52,19 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
       if (res.precisaTrocarSenha) {
         setPendingUser(res.userData);
       } else {
+        try {
+          // Abre a sessão REAL do Firebase Auth (token com claims de
+          // role/setor, verificado no servidor) antes de entrar no portal —
+          // é isso que dá acesso ao Firestore/Storage sob as novas regras.
+          await loginBackend(username, password);
+        } catch (backendErr: any) {
+          console.warn('Falha ao abrir sessão segura do Firestore:', backendErr);
+          setError(
+            'Login local funcionou, mas não foi possível abrir a sessão segura de dados (' +
+              (backendErr.message || 'erro desconhecido') +
+              '). Alguns dados podem não carregar.'
+          );
+        }
         onLogin(res.userData);
       }
     } catch (err: any) {
