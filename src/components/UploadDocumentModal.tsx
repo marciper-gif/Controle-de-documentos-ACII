@@ -44,6 +44,7 @@ export default function UploadDocumentModal({
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [retryInfo, setRetryInfo] = useState<{ attempt: number; total: number } | null>(null);
 
   const effectiveType = documentType === 'Outro' && customType.trim() ? customType.trim() : documentType;
 
@@ -105,10 +106,18 @@ export default function UploadDocumentModal({
 
     setUploading(true);
     setProgress(0);
+    setRetryInfo(null);
 
     try {
       const documentId = generateGuardedDocumentId();
-      const { fileUrl, storagePath } = await uploadGuardedDocumentFile(file, sectorId, documentId, 1, setProgress);
+      const { fileUrl, storagePath } = await uploadGuardedDocumentFile(
+        file,
+        sectorId,
+        documentId,
+        1,
+        setProgress,
+        (attempt, total) => setRetryInfo({ attempt, total })
+      );
 
       const nowIso = new Date().toISOString();
       const uploaderName = currentUser?.name || currentUser?.username || 'Usuário';
@@ -153,8 +162,14 @@ export default function UploadDocumentModal({
       onClose();
     } catch (err: any) {
       console.error('Erro ao enviar documento:', err);
-      setError(err?.message || 'Falha ao enviar o documento. Tente novamente.');
+      const isPermissionIssue = err?.code === 'storage/unauthorized';
+      setError(
+        isPermissionIssue
+          ? 'Suas permissões ainda estão sincronizando após o login. Aguarde um instante e tente enviar de novo.'
+          : err?.message || 'Falha ao enviar o documento. Tente novamente.'
+      );
       setUploading(false);
+      setRetryInfo(null);
     }
   };
 
@@ -352,9 +367,16 @@ export default function UploadDocumentModal({
           {uploading && (
             <div className="space-y-1">
               <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-sky-500 transition-all" style={{ width: `${progress}%` }} />
+                <div
+                  className={`h-full bg-sky-500 transition-all ${retryInfo ? 'animate-pulse' : ''}`}
+                  style={{ width: `${retryInfo ? 100 : progress}%` }}
+                />
               </div>
-              <p className="text-[10px] text-slate-400 text-center">Enviando... {progress}%</p>
+              <p className="text-[10px] text-slate-400 text-center">
+                {retryInfo
+                  ? `Sincronizando permissões, tentando novamente (${retryInfo.attempt}/${retryInfo.total})...`
+                  : `Enviando... ${progress}%`}
+              </p>
             </div>
           )}
 

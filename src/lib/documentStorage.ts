@@ -35,23 +35,15 @@ export function generateGuardedDocumentId(): string {
   return doc(collection(db, 'guarded_documents')).id;
 }
 
-/**
- * Envia o arquivo para documentos/{sectorId}/{documentId}/v{version}_{fileName}
- * (caminho definido no item 2 da especificação) e retorna a URL de
- * download + o caminho salvo no Storage.
- */
-export async function uploadGuardedDocumentFile(
+function attemptUpload(
   file: File,
-  sectorId: string,
-  documentId: string,
-  version: number,
+  storagePath: string,
   onProgress?: (pct: number) => void
 ): Promise<{ fileUrl: string; storagePath: string }> {
-  const storagePath = `documentos/${sectorId}/${documentId}/v${version}_${file.name}`;
   const storageRef = ref(storage, storagePath);
   const task = uploadBytesResumable(storageRef, file);
 
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<{ fileUrl: string; storagePath: string }>((resolve, reject) => {
     task.on(
       'state_changed',
       snapshot => {
@@ -60,10 +52,55 @@ export async function uploadGuardedDocumentFile(
         }
       },
       reject,
-      () => resolve()
+      () => {
+        getDownloadURL(task.snapshot.ref)
+          .then(fileUrl => resolve({ fileUrl, storagePath }))
+          .catch(reject);
+      }
     );
   });
+}
 
-  const fileUrl = await getDownloadURL(task.snapshot.ref);
-  return { fileUrl, storagePath };
+const RETRY_DELAYS_MS = [4000, 8000, 15000, 25000];
+
+/**
+ * Envia o arquivo para documentos/{sectorId}/{documentId}/v{version}_{fileName}
+ * (caminho definido no item 2 da especificação) e retorna a URL de
+ * download + o caminho salvo no Storage.
+ *
+ * As Storage Rules deste projeto são "cross-service": elas consultam o
+ * Firestore (auth_links/{uid}) pra saber o papel/setor de quem está
+ * enviando. O Firebase documenta que essa leitura cross-service é
+ * "eventualmente consistente", podendo ficar desatualizada por até ~60s
+ * logo depois que o vínculo é gravado/atualizado (ex: login recente,
+ * sessão recém-restaurada). Nesse intervalo, um upload legítimo pode
+ * tomar storage/unauthorized mesmo com o vínculo já correto no Firestore.
+ * Por isso, só para esse erro específico, tentamos de novo automaticamente
+ * com espera crescente antes de desistir e mostrar erro pro usuário.
+ */
+export async function uploadGuardedDocumentFile(
+  file: File,
+  sectorId: string,
+  documentId: string,
+  version: number,
+  onProgress?: (pct: number) => void,
+  onRetry?: (attempt: number, totalAttempts: number) => void
+): Promise<{ fileUrl: string; storagePath: string }> {
+  const storagePath = `documentos/${sectorId}/${documentId}/v${version}_${file.name}`;
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await attemptUpload(file, storagePath, onProgress);
+    } catch (err: any) {
+      const isPermissionIssue = err?.code === 'storage/unauthorized';
+      const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
+      if (!isPermissionIssue || isLastAttempt) throw err;
+
+      onRetry?.(attempt + 1, RETRY_DELAYS_MS.length + 1);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+
+  // Inalcançável — o loop acima sempre retorna ou lança antes de sair.
+  throw new Error('Falha ao enviar o documento.');
 }
