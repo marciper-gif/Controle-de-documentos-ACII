@@ -151,6 +151,11 @@ export interface DocumentVersion {
 export interface GuardedDocument {
   id: string;
   title: string;
+  titleLower?: string;     // title em minúsculas, sem acento simples — usado só para busca
+                            // por prefixo no Firestore (where >= / <), que é case-sensitive.
+                            // Opcional: documentos criados antes desse campo existir continuam
+                            // funcionando normalmente (só não aparecem em resultado de busca
+                            // por título até serem editados/reenviados uma vez).
   sectorId: string;        // referencia SectorData.id
   sectorName: string;      // desnormalizado para exibição rápida
   documentType: string;    // ex: "Contrato", "Nota Fiscal", "Ata de Reunião", "Política Interna", "Ficha de Funcionário"

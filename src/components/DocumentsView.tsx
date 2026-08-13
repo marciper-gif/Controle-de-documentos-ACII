@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Folder,
@@ -9,14 +9,14 @@ import {
   Download,
   History,
   ScrollText,
-  ShieldAlert,
   X,
   Inbox,
   Building,
   UploadCloud,
   FileUp,
   AlertCircle,
-  Loader2
+  Loader2,
+  ChevronDown
 } from 'lucide-react';
 import { DocumentVersion, Employee, GuardedDocument, ProfilePermissionItem, SectorData, UserAccount } from '../types';
 import {
@@ -26,15 +26,22 @@ import {
   DOCUMENT_STATUS_LABEL
 } from '../utils/guardedDocuments';
 import { uploadGuardedDocumentFile, validateDocumentFile } from '../lib/documentStorage';
+import { dbSaveGuardedDocument } from '../lib/firebaseSync';
+import {
+  GUARDED_DOCS_PAGE_SIZE,
+  SEARCH_RESULTS_PER_SECTOR,
+  getSectorDocumentCount,
+  normalizeForSearch,
+  subscribeToSectorDocuments,
+  subscribeToSectorDocumentsByTitlePrefix
+} from '../lib/guardedDocumentsQuery';
 import UploadDocumentModal from './UploadDocumentModal';
 import ExpiringDocumentsPanel from './ExpiringDocumentsPanel';
 
 interface DocumentsViewProps {
   sectors: SectorData[];
-  guardedDocuments: GuardedDocument[];
   currentUser: UserAccount | null;
   currentUserEmployee?: Employee | null;
-  setGuardedDocuments: React.Dispatch<React.SetStateAction<GuardedDocument[]>>;
   userPermissions?: ProfilePermissionItem;
 }
 
@@ -55,10 +62,8 @@ function formatDate(iso: string): string {
 
 export default function DocumentsView({
   sectors,
-  guardedDocuments,
   currentUser,
   currentUserEmployee,
-  setGuardedDocuments,
   userPermissions
 }: DocumentsViewProps) {
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
@@ -66,6 +71,111 @@ export default function DocumentsView({
   const [historyDoc, setHistoryDoc] = useState<GuardedDocument | null>(null);
   const [auditDoc, setAuditDoc] = useState<GuardedDocument | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
+
+  // ── Contagem por pasta (item 4.1) ──────────────────────────────────
+  // Consulta de agregação (COUNT), não baixa os documentos em si — ver
+  // src/lib/guardedDocumentsQuery.ts. Setores sem permissão de leitura
+  // pro usuário atual (Firestore Rules) falham silenciosamente e ficam
+  // com contagem 0, em vez de estourar erro na tela.
+  const [sectorCounts, setSectorCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    sectors.forEach(sector => {
+      getSectorDocumentCount(sector.id)
+        .then(count => {
+          if (!cancelled) setSectorCounts(prev => ({ ...prev, [sector.id]: count }));
+        })
+        .catch(() => {
+          if (!cancelled) setSectorCounts(prev => ({ ...prev, [sector.id]: 0 }));
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sectors]);
+
+  // ── Pasta aberta: lista paginada, em tempo real ────────────────────
+  const [openDocs, setOpenDocs] = useState<GuardedDocument[]>([]);
+  const [openLoading, setOpenLoading] = useState(false);
+  const [openPageLimit, setOpenPageLimit] = useState(GUARDED_DOCS_PAGE_SIZE);
+
+  useEffect(() => {
+    setOpenPageLimit(GUARDED_DOCS_PAGE_SIZE);
+  }, [selectedSectorId]);
+
+  useEffect(() => {
+    if (!selectedSectorId) {
+      setOpenDocs([]);
+      return;
+    }
+    setOpenLoading(true);
+    const unsubscribe = subscribeToSectorDocuments(
+      selectedSectorId,
+      openPageLimit,
+      docs => {
+        setOpenDocs(docs);
+        setOpenLoading(false);
+      },
+      err => {
+        console.warn('Falha ao carregar documentos do setor:', err);
+        setOpenLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [selectedSectorId, openPageLimit]);
+
+  // Só mostra "Carregar mais" se a última página veio cheia — sinal de
+  // que provavelmente existe mais além do limite atual.
+  const openHasMore = openDocs.length === openPageLimit;
+
+  // ── Busca global (item 4.4) ────────────────────────────────────────
+  // Firestore não tem busca de texto livre nativa: isto é busca por
+  // PREFIXO do título (não por qualquer palavra no meio do texto nem
+  // por tipo/nome de arquivo, como era antes). Dispara uma consulta por
+  // setor em paralelo (todas limitadas), então o total de leituras por
+  // busca fica limitado a nº de setores × SEARCH_RESULTS_PER_SECTOR —
+  // previsível mesmo com a base inteira na casa das centenas de
+  // milhares de documentos. Ignora a pasta aberta, igual ao
+  // comportamento original.
+  const normalizedQuery = useMemo(() => normalizeForSearch(searchQuery.trim()), [searchQuery]);
+  const [searchResults, setSearchResults] = useState<GuardedDocument[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  useEffect(() => {
+    if (!normalizedQuery) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const resultsBySector = new Map<string, GuardedDocument[]>();
+    const mergeAndPublish = () => {
+      const merged = Array.from(resultsBySector.values())
+        .flat()
+        .sort((a, b) => a.title.localeCompare(b.title));
+      setSearchResults(merged);
+    };
+    const unsubscribes = sectors.map(sector =>
+      subscribeToSectorDocumentsByTitlePrefix(
+        sector.id,
+        normalizedQuery,
+        SEARCH_RESULTS_PER_SECTOR,
+        docs => {
+          resultsBySector.set(sector.id, docs);
+          mergeAndPublish();
+          setSearchLoading(false);
+        },
+        () => {
+          // Setor sem permissão de leitura pro usuário atual — ignora
+          // silenciosamente (mesmo raciocínio da contagem por pasta acima).
+          resultsBySector.set(sector.id, []);
+          setSearchLoading(false);
+        }
+      )
+    );
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [normalizedQuery, sectors]);
 
   // Reenvio de nova versão (item 4.5 da especificação)
   const versionInputRef = useRef<HTMLInputElement>(null);
@@ -127,35 +237,32 @@ export default function DocumentsView({
         uploadedAt: doc.uploadedAt
       };
 
-      setGuardedDocuments(prev =>
-        prev.map(d =>
-          d.id === doc.id
-            ? {
-                ...d,
-                fileName: file.name,
-                fileUrl,
-                storagePath,
-                fileSize: file.size,
-                fileType: file.type,
-                uploadedBy: uploaderName,
-                uploadedByEmployeeId: currentUserEmployee?.id,
-                uploadedAt: nowIso,
-                version: newVersionNumber,
-                previousVersions: [...(d.previousVersions || []), archivedVersion],
-                auditLog: [
-                  ...(d.auditLog || []),
-                  {
-                    action: 'upload' as const,
-                    user: uploaderName,
-                    date: nowIso,
-                    notes: `Nova versão enviada (v${newVersionNumber})`
-                  }
-                ]
-              }
-            : d
-        )
-      );
+      const updated: GuardedDocument = {
+        ...doc,
+        fileName: file.name,
+        fileUrl,
+        storagePath,
+        fileSize: file.size,
+        fileType: file.type,
+        uploadedBy: uploaderName,
+        uploadedByEmployeeId: currentUserEmployee?.id,
+        uploadedAt: nowIso,
+        version: newVersionNumber,
+        previousVersions: [...(doc.previousVersions || []), archivedVersion],
+        auditLog: [
+          ...(doc.auditLog || []),
+          {
+            action: 'upload' as const,
+            user: uploaderName,
+            date: nowIso,
+            notes: `Nova versão enviada (v${newVersionNumber})`
+          }
+        ]
+      };
 
+      await dbSaveGuardedDocument(updated, currentUser);
+      // A pasta aberta (ou os resultados de busca) atualiza sozinha via
+      // onSnapshot assim que o Firestore confirmar a gravação.
       setVersionTargetDoc(null);
     } catch (err: any) {
       console.error('Erro ao enviar nova versão:', err);
@@ -167,18 +274,20 @@ export default function DocumentsView({
 
   const handleDownloadClick = (doc: GuardedDocument) => {
     const nowIso = new Date().toISOString();
-    setGuardedDocuments(prev =>
-      prev.map(d =>
-        d.id === doc.id
-          ? { ...d, auditLog: [...(d.auditLog || []), { action: 'download' as const, user: uploaderName, date: nowIso }] }
-          : d
-      )
-    );
+    const updated: GuardedDocument = {
+      ...doc,
+      auditLog: [...(doc.auditLog || []), { action: 'download' as const, user: uploaderName, date: nowIso }]
+    };
+    dbSaveGuardedDocument(updated, currentUser).catch(err => {
+      // Não bloqueia o download em si (o link já abriu) — só o registro
+      // de auditoria que pode falhar silenciosamente aqui.
+      console.warn('Falha ao registrar download no log de auditoria:', err);
+    });
   };
 
   // Setor do próprio usuário logado (pra dar uma dica visual de qual
-  // pasta é "a dele" — a segurança de verdade já vem do Firestore: o
-  // array guardedDocuments só contém o que as regras deixaram ler).
+  // pasta é "a dele" — a segurança de verdade já vem do Firestore: cada
+  // consulta só retorna o que as regras deixaram ler).
   const mySectorId = useMemo(() => {
     if (!currentUserEmployee?.sector) return null;
     const match = sectors.find(
@@ -187,32 +296,7 @@ export default function DocumentsView({
     return match?.id || null;
   }, [sectors, currentUserEmployee]);
 
-  const docsBySectorId = useMemo(() => {
-    const map = new Map<string, GuardedDocument[]>();
-    guardedDocuments.forEach(doc => {
-      const list = map.get(doc.sectorId) || [];
-      list.push(doc);
-      map.set(doc.sectorId, list);
-    });
-    return map;
-  }, [guardedDocuments]);
-
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-
-  // Busca global (item 4.4): quando há texto digitado, ignora a pasta
-  // selecionada e procura por nome/tipo em tudo que o usuário pode ver.
-  const searchResults = useMemo(() => {
-    if (!normalizedQuery) return null;
-    return guardedDocuments.filter(
-      doc =>
-        doc.title.toLowerCase().includes(normalizedQuery) ||
-        doc.documentType.toLowerCase().includes(normalizedQuery) ||
-        doc.fileName.toLowerCase().includes(normalizedQuery)
-    );
-  }, [guardedDocuments, normalizedQuery]);
-
   const selectedSector = sectors.find(s => s.id === selectedSectorId) || null;
-  const docsInSelectedSector = selectedSectorId ? (docsBySectorId.get(selectedSectorId) || []) : [];
 
   const renderDocumentRow = (doc: GuardedDocument) => {
     const status = computeDocumentStatus(doc);
@@ -289,10 +373,8 @@ export default function DocumentsView({
     <div className="space-y-6">
       {/* Painel de vencimentos (item 5 da especificação) */}
       <ExpiringDocumentsPanel
-        guardedDocuments={guardedDocuments}
         currentUser={currentUser}
         mySectorId={mySectorId}
-        setGuardedDocuments={setGuardedDocuments}
         canManageRetention={!!userPermissions?.canManageRetention}
       />
 
@@ -304,7 +386,7 @@ export default function DocumentsView({
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Buscar documento por nome ou tipo..."
+            placeholder="Buscar documento pelo início do título..."
             className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all font-medium"
           />
           {searchQuery && (
@@ -329,16 +411,18 @@ export default function DocumentsView({
         )}
       </div>
 
-      {searchResults ? (
+      {searchResults !== null ? (
         // ── Resultado da busca global ──────────────────────────────
         <div className="space-y-3">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            {searchResults.length} resultado(s) para "{searchQuery}"
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            {searchLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {searchResults.length} resultado(s) para "{searchQuery}" (por início do título)
           </p>
-          {searchResults.length === 0 ? (
+          {searchResults.length === 0 && !searchLoading ? (
             <div className="text-center py-16 text-slate-400 dark:text-slate-500">
               <Inbox className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="text-sm font-medium">Nenhum documento encontrado.</p>
+              <p className="text-[11px] mt-1">A busca considera o começo do título — tente um termo mais curto.</p>
             </div>
           ) : (
             <div className="space-y-2.5">{searchResults.map(renderDocumentRow)}</div>
@@ -361,9 +445,10 @@ export default function DocumentsView({
               <FolderOpen className="w-4 h-4 text-sky-500" />
               {selectedSector.name}
             </h3>
+            {openLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
           </div>
 
-          {docsInSelectedSector.length === 0 ? (
+          {openDocs.length === 0 && !openLoading ? (
             <div className="text-center py-16 text-slate-400 dark:text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
               <Inbox className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="text-sm font-medium">Nenhum documento nesta pasta ainda.</p>
@@ -378,16 +463,29 @@ export default function DocumentsView({
               )}
             </div>
           ) : (
-            <div className="space-y-2.5">{docsInSelectedSector.map(renderDocumentRow)}</div>
+            <>
+              <div className="space-y-2.5">{openDocs.map(renderDocumentRow)}</div>
+              {openHasMore && (
+                <div className="flex justify-center pt-1">
+                  <button
+                    type="button"
+                    disabled={openLoading}
+                    onClick={() => setOpenPageLimit(prev => prev + GUARDED_DOCS_PAGE_SIZE)}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {openLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    Carregar mais
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       ) : (
         // ── Grade de pastas por setor ───────────────────────────────
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {sectors.map(sector => {
-            const docsInSector = docsBySectorId.get(sector.id) || [];
-            const hasVencido = docsInSector.some(d => computeDocumentStatus(d) === 'vencido');
-            const hasVencendo = docsInSector.some(d => computeDocumentStatus(d) === 'vencendo');
+            const count = sectorCounts[sector.id] ?? 0;
             const isMine = sector.id === mySectorId;
 
             return (
@@ -400,18 +498,6 @@ export default function DocumentsView({
                   isMine ? 'ring-1 ring-sky-500/40' : ''
                 }`}
               >
-                {(hasVencido || hasVencendo) && (
-                  <span
-                    className={`absolute top-3 right-3 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      hasVencido ? DOCUMENT_STATUS_CLASSES.vencido : DOCUMENT_STATUS_CLASSES.vencendo
-                    }`}
-                    title={hasVencido ? 'Há documentos vencidos nesta pasta' : 'Há documentos vencendo nesta pasta'}
-                  >
-                    <ShieldAlert className="w-3 h-3" />
-                    {hasVencido ? 'Vencido' : 'Vencendo'}
-                  </span>
-                )}
-
                 <div className="flex items-center gap-3 mb-3">
                   <div className="p-2.5 rounded-xl bg-current/10">
                     <Folder className="w-5 h-5" />
@@ -419,7 +505,7 @@ export default function DocumentsView({
                   <div className="min-w-0">
                     <h4 className="font-black text-sm truncate">{sector.name}</h4>
                     <p className="text-[11px] opacity-70 font-medium">
-                      {docsInSector.length} documento{docsInSector.length === 1 ? '' : 's'}
+                      {count} documento{count === 1 ? '' : 's'}
                     </p>
                   </div>
                 </div>
@@ -564,7 +650,16 @@ export default function DocumentsView({
             currentUserEmployee={currentUserEmployee}
             onClose={() => setShowUploadModal(false)}
             onSaved={newDoc => {
-              setGuardedDocuments(prev => [...prev, newDoc]);
+              dbSaveGuardedDocument(newDoc, currentUser).catch(err => {
+                console.error('Falha ao salvar documento no Firestore:', err);
+                alert(`⚠️ Não foi possível salvar "${newDoc.title}" no banco de dados. Verifique sua conexão com a internet e tente novamente.`);
+              });
+              // Se o documento acabou de entrar na pasta que já está
+              // aberta, o onSnapshot da pasta pega a novidade sozinho.
+              // Se a contagem da pasta ainda não tiver sido atualizada
+              // (a consulta de agregação não é em tempo real), soma 1
+              // localmente pra não parecer que "sumiu" até recarregar.
+              setSectorCounts(prev => ({ ...prev, [newDoc.sectorId]: (prev[newDoc.sectorId] ?? 0) + 1 }));
             }}
           />
         )}

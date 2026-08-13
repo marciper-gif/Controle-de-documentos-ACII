@@ -9,6 +9,7 @@ import {
   validateDocumentFile
 } from '../lib/documentStorage';
 import { calculateRetentionUntil, DEFAULT_RETENTION_YEARS_BY_TYPE, DOCUMENT_TYPE_SUGGESTIONS } from '../utils/guardedDocuments';
+import { normalizeForSearch } from '../lib/guardedDocumentsQuery';
 
 interface UploadDocumentModalProps {
   sectors: SectorData[];
@@ -125,6 +126,7 @@ export default function UploadDocumentModal({
       const newDoc: GuardedDocument = {
         id: documentId,
         title: title.trim(),
+        titleLower: normalizeForSearch(title.trim()),
         sectorId,
         sectorName: sector.name,
         documentType: effectiveType.trim(),

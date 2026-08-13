@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, RotateCcw, Trash2, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { GuardedDocument, UserAccount } from '../types';
@@ -9,12 +9,12 @@ import {
   DOCUMENT_STATUS_CLASSES,
   DOCUMENT_STATUS_DOT
 } from '../utils/guardedDocuments';
+import { subscribeToExpiringDocuments } from '../lib/guardedDocumentsQuery';
+import { dbSaveGuardedDocument } from '../lib/firebaseSync';
 
 interface ExpiringDocumentsPanelProps {
-  guardedDocuments: GuardedDocument[];
   currentUser: UserAccount | null;
   mySectorId: string | null;
-  setGuardedDocuments: React.Dispatch<React.SetStateAction<GuardedDocument[]>>;
   // item 6 da especificação: canManageRetention cobre TANTO renovar
   // QUANTO marcar para eliminação — concede a alguém sem ser admin/gestor.
   canManageRetention?: boolean;
@@ -29,15 +29,15 @@ function formatDate(iso: string): string {
 }
 
 export default function ExpiringDocumentsPanel({
-  guardedDocuments,
   currentUser,
   mySectorId,
-  setGuardedDocuments,
   canManageRetention = false
 }: ExpiringDocumentsPanelProps) {
   const [expanded, setExpanded] = useState(true);
   const [renewingDoc, setRenewingDoc] = useState<GuardedDocument | null>(null);
   const [renewYears, setRenewYears] = useState(5);
+  const [docs, setDocs] = useState<GuardedDocument[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const isAdmin = currentUser?.role === 'admin';
   const isGestor = currentUser?.role === 'gestor' || currentUser?.role === 'lider';
@@ -46,54 +46,91 @@ export default function ExpiringDocumentsPanel({
   const canManage = isAdmin || isGestor || canManageRetention;
   const canDispose = isAdmin || canManageRetention;
 
-  // "Visível para admin e gestor do setor correspondente" (item 5). Quem
-  // não é admin só gerencia vencimentos do próprio setor; admin vê tudo
-  // que já chegou (o Firestore já filtrou por setor pra quem não é admin).
-  const relevantDocs = useMemo(() => {
-    return guardedDocuments
-      .filter(doc => isAdmin || ((isGestor || canManageRetention) && doc.sectorId === mySectorId))
-      .map(doc => ({ doc, status: computeDocumentStatus(doc) }))
-      .filter(({ status }) => status === 'vencendo' || status === 'vencido')
-      // Ordenado por proximidade do vencimento — mais urgente primeiro.
-      .sort((a, b) => new Date(a.doc.retentionUntil).getTime() - new Date(b.doc.retentionUntil).getTime());
-  }, [guardedDocuments, isAdmin, isGestor, canManageRetention, mySectorId]);
-
-  if (!canManage || relevantDocs.length === 0) return null;
+  // Consulta direta ao Firestore (já filtrada por status/prazo, e por
+  // setor pra quem não é admin) em vez de receber a coleção inteira e
+  // filtrar em memória — ver src/lib/guardedDocumentsQuery.ts. Admin
+  // enxerga vencimentos de todos os setores; quem não é admin só do
+  // próprio setor (mesma regra de visibilidade de antes, agora aplicada
+  // na consulta em vez de no cliente).
+  useEffect(() => {
+    if (!canManage) {
+      setDocs([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const sectorScope = isAdmin ? null : mySectorId;
+    // Sem setor definido e sem ser admin: não há o que consultar ainda
+    // (ex: perfil sem funcionário/setor vinculado).
+    if (!isAdmin && !sectorScope) {
+      setDocs([]);
+      setLoading(false);
+      return;
+    }
+    const unsubscribe = subscribeToExpiringDocuments(
+      { sectorId: sectorScope },
+      list => {
+        setDocs(list);
+        setLoading(false);
+      },
+      err => {
+        console.warn('Falha ao carregar documentos vencendo:', err);
+        setLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [canManage, isAdmin, mySectorId]);
 
   const uploaderName = currentUser?.name || currentUser?.username || 'Usuário';
+
+  // A consulta já traz só quem está dentro do horizonte de vencimento
+  // (ver horizonDays em subscribeToExpiringDocuments); aqui só ordena
+  // por proximidade e recalcula o rótulo exato (vencendo/vencido).
+  const relevantDocs = useMemo(() => {
+    return docs
+      .map(doc => ({ doc, status: computeDocumentStatus(doc) }))
+      .filter(({ status }) => status === 'vencendo' || status === 'vencido')
+      .sort((a, b) => new Date(a.doc.retentionUntil).getTime() - new Date(b.doc.retentionUntil).getTime());
+  }, [docs]);
+
+  if (!canManage || loading || relevantDocs.length === 0) return null;
 
   const openRenew = (doc: GuardedDocument) => {
     setRenewingDoc(doc);
     setRenewYears(doc.retentionYears || 5);
   };
 
-  const confirmRenew = () => {
+  const confirmRenew = async () => {
     if (!renewingDoc) return;
     const nowIso = new Date().toISOString();
-    setGuardedDocuments(prev =>
-      prev.map(d => {
-        if (d.id !== renewingDoc.id) return d;
-        const newRetentionUntil = calculateRetentionUntil(d.retentionUntil, renewYears);
-        return {
-          ...d,
-          retentionUntil: newRetentionUntil,
-          status: 'ativo',
-          auditLog: [
-            ...(d.auditLog || []),
-            {
-              action: 'renew_retention' as const,
-              user: uploaderName,
-              date: nowIso,
-              notes: `+${renewYears} ano(s) — nova data: ${formatDate(newRetentionUntil)}`
-            }
-          ]
-        };
-      })
-    );
+    const newRetentionUntil = calculateRetentionUntil(renewingDoc.retentionUntil, renewYears);
+    const updated: GuardedDocument = {
+      ...renewingDoc,
+      retentionUntil: newRetentionUntil,
+      status: 'ativo',
+      auditLog: [
+        ...(renewingDoc.auditLog || []),
+        {
+          action: 'renew_retention' as const,
+          user: uploaderName,
+          date: nowIso,
+          notes: `+${renewYears} ano(s) — nova data: ${formatDate(newRetentionUntil)}`
+        }
+      ]
+    };
     setRenewingDoc(null);
+    try {
+      await dbSaveGuardedDocument(updated, currentUser);
+      // A assinatura em tempo real (useEffect acima) reflete a mudança
+      // sozinha assim que o Firestore confirmar — não precisa atualizar
+      // estado local aqui.
+    } catch (err) {
+      console.error('Falha ao renovar guarda:', err);
+      alert('Não foi possível renovar a guarda. Verifique sua conexão e tente novamente.');
+    }
   };
 
-  const handleDispose = (doc: GuardedDocument) => {
+  const handleDispose = async (doc: GuardedDocument) => {
     if (!canDispose) return;
     const confirmed = window.confirm(
       `Marcar "${doc.title}" para eliminação?\n\nIsso só sinaliza o documento como eliminado — o arquivo continua no Storage até uma exclusão física manual separada.`
@@ -101,20 +138,20 @@ export default function ExpiringDocumentsPanel({
     if (!confirmed) return;
 
     const nowIso = new Date().toISOString();
-    setGuardedDocuments(prev =>
-      prev.map(d =>
-        d.id === doc.id
-          ? {
-              ...d,
-              status: 'eliminado' as const,
-              auditLog: [
-                ...(d.auditLog || []),
-                { action: 'mark_for_disposal' as const, user: uploaderName, date: nowIso }
-              ]
-            }
-          : d
-      )
-    );
+    const updated: GuardedDocument = {
+      ...doc,
+      status: 'eliminado' as const,
+      auditLog: [
+        ...(doc.auditLog || []),
+        { action: 'mark_for_disposal' as const, user: uploaderName, date: nowIso }
+      ]
+    };
+    try {
+      await dbSaveGuardedDocument(updated, currentUser);
+    } catch (err) {
+      console.error('Falha ao marcar documento para eliminação:', err);
+      alert('Não foi possível marcar o documento para eliminação. Verifique sua conexão e tente novamente.');
+    }
   };
 
   return (

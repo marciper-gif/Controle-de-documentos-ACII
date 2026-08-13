@@ -1,0 +1,38 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "guarded_documents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sectorId", "order": "ASCENDING" },
+        { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "guarded_documents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sectorId", "order": "ASCENDING" },
+        { "fieldPath": "titleLower", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "guarded_documents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "retentionUntil", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "guarded_documents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sectorId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "retentionUntil", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
