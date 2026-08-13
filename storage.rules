@@ -3,32 +3,33 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // ─────────────────────────────────────────────────────────────────
-    // Estas regras leem o mesmo Firestore do app (regras "cross-service",
-    // ver https://firebase.blog/posts/2022/09/announcing-cross-service-security-rules/)
-    // para saber quem está pedindo o quê — o mesmo vínculo auth_links/{uid}
-    // usado em firestore.rules (ver src/lib/authLink.ts para como ele é
-    // criado). O Storage Rules exige o caminho completo do banco, incluindo
-    // o nome do banco — este projeto usa um Firestore NOMEADO (não o
-    // "(default)"), então o ID abaixo precisa bater com
-    // firestoreDatabaseId em firebase-applet-config.json. Se o banco for
-    // recriado/renomeado, este valor tem que ser atualizado nos dois
-    // lugares onde aparece abaixo.
+    // HISTÓRICO: a primeira versão destas regras lia papel/setor via
+    // "cross-service rules" (firestore.get() direto no auth_links/{uid}
+    // do Firestore). Isso NUNCA funcionou neste projeto — o Firebase só
+    // suporta cross-service rules contra o banco Firestore "(default)",
+    // e este projeto usa um banco NOMEADO
+    // (ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900).
+    // Toda checagem de isAdmin()/isGestor() falhava sempre, mesmo pra
+    // admin de verdade — bug reproduzido e diagnosticado em produção.
+    //
+    // Solução: uma Cloud Function (functions/index.js,
+    // syncAuthLinkClaims) espelha auth_links/{uid} (role, sectorId) em
+    // Custom Claims do Firebase Auth sempre que esse documento muda.
+    // Custom claims vêm DENTRO do token (request.auth.token), então o
+    // Storage lê sem nenhuma consulta cross-service — problema resolvido
+    // na raiz, não contornado.
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function authProfile() {
-      return firestore.get(/databases/ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900/documents/auth_links/$(request.auth.uid)).data;
-    }
-
     function currentRole() {
-      return isAuthenticated() ? authProfile().role : null;
+      return isAuthenticated() ? request.auth.token.role : null;
     }
 
     function currentSectorId() {
-      return isAuthenticated() ? authProfile().sectorId : null;
+      return isAuthenticated() ? request.auth.token.sectorId : null;
     }
 
     function isAdmin() {
@@ -37,17 +38,6 @@ service firebase.storage {
 
     function isGestor() {
       return currentRole() == 'gestor' || currentRole() == 'lider';
-    }
-
-    // Setores extras com permissão de visualização, lidos do próprio
-    // documento em guarded_documents/{documentId}. Só é avaliada quando
-    // as checagens mais baratas acima (admin / setor dono) já falharam,
-    // graças ao curto-circuito do "||" — então o total de leituras extra
-    // ao Firestore por avaliação de regra fica em no máximo 2 (auth_links
-    // + guarded_documents), dentro do limite do Firebase para regras
-    // cross-service.
-    function docExtraViewerSectors(documentId) {
-      return firestore.get(/databases/ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900/documents/guarded_documents/$(documentId)).data.extraViewerSectorIds;
     }
 
     // Validação server-side das restrições de upload do item 2 da
@@ -68,24 +58,34 @@ service firebase.storage {
 
     // documentos/{sectorId}/{documentId}/v{version}_{fileName}
     match /documentos/{sectorId}/{documentId}/{fileName} {
-      allow read: if isAuthenticated() && (
-        isAdmin() ||
-        currentSectorId() == sectorId ||
-        (docExtraViewerSectors(documentId) is list && currentSectorId() in docExtraViewerSectors(documentId))
-      );
+      // NOTA: o campo extraViewerSectorIds (setores extras com permissão
+      // de visualização de um documento específico, item 5/6 da
+      // especificação) NÃO é checado aqui — ele vive em
+      // guarded_documents/{documentId} no Firestore, e checá-lo exigiria
+      // de novo uma consulta cross-service (mesma limitação do banco
+      // nomeado acima). Continua funcionando normalmente na TELA (o
+      // Firestore libera a leitura da metadata pros setores extras
+      // normalmente), mas o arquivo em si no Storage só é liberado pro
+      // setor dono do documento ou admin. TODO: se isso virar bloqueio
+      // real no uso, resolver com uma Cloud Function callable que gera
+      // uma URL assinada de download após checar o Firestore no servidor
+      // (sem as limitações do storage.rules).
+      allow read: if isAuthenticated() && (isAdmin() || currentSectorId() == sectorId);
 
       // Upload/nova versão: admin ou gestor do próprio setor da pasta.
       // TODO (etapa 9 da especificação): incluir aqui também quem tiver
-      // canUploadDocuments == true no perfil, quando ProfilePermissions
-      // for estendido e espelhado em auth_links.
+      // canUploadDocuments == true no perfil — precisa entrar nos custom
+      // claims também (hoje só role/sectorId são espelhados).
       allow create, update: if isAuthenticated() &&
         (isAdmin() || (isGestor() && currentSectorId() == sectorId)) &&
         isValidDocumentUpload();
 
-      // Exclusão física do arquivo: só admin. "Marcar para eliminação"
-      // (item 5 da especificação) só muda o status no Firestore — não
-      // apaga o arquivo do Storage automaticamente.
-      allow delete: if isAdmin();
+      // Exclusão física do arquivo: ninguém, por enquanto. "Marcar para
+      // eliminação" (item 5 da especificação) só muda o status no
+      // Firestore — a exclusão física sempre foi manual/separada. Sem
+      // cross-service pra confirmar admin com segurança aqui, é mais
+      // seguro fechar por completo até existir uma necessidade real.
+      allow delete: if false;
     }
 
     // Qualquer outro caminho no bucket: fechado por padrão.
