@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, FormEvent } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Search,
@@ -208,7 +209,61 @@ function ACIILogo({ className = "w-full h-auto" }: { className?: string }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Navegação por URL
+// ─────────────────────────────────────────────────────────────────────
+// currentView/selectedDocId/selectedDocType continuam sendo o estado
+// "de verdade" do app (nenhum dos ~60 lugares que já chamam
+// setCurrentView/setSelectedDocId/setSelectedDocType precisou mudar).
+// O que muda: dois efeitos (perto da declaração desses estados, mais
+// abaixo) mantêm a URL do navegador sincronizada com esse estado nos
+// dois sentidos — clicar numa aba ou abrir um documento empurra uma
+// URL nova pro histórico do navegador (state → URL), e usar os botões
+// voltar/avançar do navegador (ou carregar um link direto) atualiza
+// esse mesmo estado a partir da URL (URL → state). Isso resolve os
+// dois problemas relatados: o botão voltar do navegador passa a
+// funcionar de verdade, e não existe mais como o documento aberto e a
+// aba atual ficarem "dessincronizados" entre si — os dois efeitos
+// sempre convergem pro mesmo valor.
+type ViewType = 'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace';
+type DocType = 'pop' | 'atr' | 'it';
+
+const VIEW_PATHS: Record<Exclude<ViewType, 'portal'>, string> = {
+  employees: '/employees',
+  sectors: '/sectors',
+  documentos: '/documentos',
+  workspace: '/workspace'
+};
+
+/** Estado do app → URL correspondente. */
+function computeAppPath(currentView: ViewType, selectedDocType: DocType, selectedDocId: string): string {
+  if (currentView === 'portal') {
+    return selectedDocId ? `/portal/${selectedDocType}/${encodeURIComponent(selectedDocId)}` : '/portal';
+  }
+  return VIEW_PATHS[currentView];
+}
+
+/** URL → estado do app correspondente (usado tanto na carga inicial quanto no botão voltar/avançar). */
+function parseAppPath(pathname: string): { currentView: ViewType; selectedDocType: DocType; selectedDocId: string } {
+  const parts = pathname.split('/').filter(Boolean);
+  const first = parts[0];
+
+  if (first === 'employees' || first === 'sectors' || first === 'documentos' || first === 'workspace') {
+    return { currentView: first, selectedDocType: 'pop', selectedDocId: '' };
+  }
+
+  // '/', '/portal', '/portal/:type/:id' ou qualquer caminho desconhecido caem aqui como padrão.
+  const [, docType, docId] = parts; // parts[0] seria 'portal'
+  if ((docType === 'pop' || docType === 'atr' || docType === 'it') && docId) {
+    return { currentView: 'portal', selectedDocType: docType, selectedDocId: decodeURIComponent(docId) };
+  }
+  return { currentView: 'portal', selectedDocType: 'pop', selectedDocId: '' };
+}
+
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   // Splash Screen State
   const [showSplash, setShowSplash] = useState<boolean>(true);
 
@@ -1068,16 +1123,48 @@ export default function App() {
   }, [employees]);
 
   // Current main view tab selection: 'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace'
-  const [currentView, setCurrentView] = useState<'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace'>('portal');
+  // Inicializado a partir da URL carregada (link direto/compartilhado/recarregado
+  // continua exatamente onde estava) — ver parseAppPath acima.
+  const [currentView, setCurrentView] = useState<ViewType>(() => parseAppPath(window.location.pathname).currentView);
 
   // Google Workspace Preselection states
   const [preselectedDocId, setPreselectedDocId] = useState<string>('');
   const [preselectedDocType, setPreselectedDocType] = useState<'pop' | 'atr' | 'it'>('pop');
 
   // Active Document Selector
-  const [selectedDocId, setSelectedDocId] = useState<string>('');
-  const [selectedDocType, setSelectedDocType] = useState<'pop' | 'atr' | 'it'>('pop');
+  const [selectedDocId, setSelectedDocId] = useState<string>(() => parseAppPath(window.location.pathname).selectedDocId);
+  const [selectedDocType, setSelectedDocType] = useState<DocType>(() => parseAppPath(window.location.pathname).selectedDocType);
   const [activeTab, setActiveTab] = useState<'content' | 'flowchart'>('content');
+
+  // ───────────────────────────────────────────────────────────────────
+  // Sincronização URL ⇄ estado (ver comentário acima de computeAppPath).
+  // Cada efeito só chama seu setState/navigate quando o valor calculado
+  // realmente diverge do atual — por isso os dois nunca entram em loop
+  // um com o outro, mesmo disparando a cada mudança de estado/URL.
+  // ───────────────────────────────────────────────────────────────────
+
+  // URL → estado: cobre o botão voltar/avançar do navegador e qualquer
+  // carregamento direto de link (a inicialização acima já cobre o
+  // primeiro render; este efeito cobre TODAS as mudanças de URL depois
+  // dele, inclusive as que o próprio efeito abaixo provoca).
+  useEffect(() => {
+    const parsed = parseAppPath(location.pathname);
+    setCurrentView(prev => (prev !== parsed.currentView ? parsed.currentView : prev));
+    setSelectedDocId(prev => (prev !== parsed.selectedDocId ? parsed.selectedDocId : prev));
+    setSelectedDocType(prev => (prev !== parsed.selectedDocType ? parsed.selectedDocType : prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  // Estado → URL: qualquer clique que já muda currentView/selectedDocId/
+  // selectedDocType (nenhum desses ~60 lugares no arquivo precisou ser
+  // tocado) agora também empurra uma URL nova pro histórico do navegador.
+  useEffect(() => {
+    const targetPath = computeAppPath(currentView, selectedDocType, selectedDocId);
+    if (targetPath !== location.pathname) {
+      navigate(targetPath);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, selectedDocType, selectedDocId]);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isReadingMode, setIsReadingMode] = useState(false);
 
@@ -2106,7 +2193,7 @@ export default function App() {
           <button
             onClick={() => {
               setCurrentView('portal');
-              setSelectedDocId(null);
+              setSelectedDocId('');
             }}
             className="flex items-center gap-1 hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer shrink-0"
             title="Ir para o início"
@@ -2120,7 +2207,7 @@ export default function App() {
           <button
             onClick={() => {
               if (selectedDocId) {
-                setSelectedDocId(null);
+                setSelectedDocId('');
               }
             }}
             className={`hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer shrink-0 font-bold ${
