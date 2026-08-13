@@ -2566,8 +2566,8 @@ export default function App() {
                   className="p-6 md:p-10 overflow-y-auto h-[720px] scrollbar-thin scrollbar-thumb-slate-700 flex flex-col justify-start"
                 >
                 {/* Hero / Banner section */}
-                <div className="bg-gradient-to-br from-sky-500/10 via-indigo-500/5 to-transparent border border-sky-100 dark:border-slate-800 p-6 md:p-8 rounded-2xl mb-8 relative flex flex-col md:flex-row md:items-center md:justify-between gap-6 overflow-hidden">
-                  <div className="relative z-10 flex-1">
+                <div className="bg-gradient-to-br from-sky-500/10 via-indigo-500/5 to-transparent border border-sky-100 dark:border-slate-800 p-6 md:p-8 rounded-2xl mb-8 relative flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                  <div className="relative z-10 flex-1 min-w-0">
                     <span className="bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full">
                       Portal Oficial de Documentos
                     </span>
