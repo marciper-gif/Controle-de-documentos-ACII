@@ -1256,13 +1256,19 @@ export default function App() {
       setSelectedDocId('');
       return;
     }
-    const firstDoc = [
-      ...pops.map(p => ({ ...p, docType: 'pop' as const })),
-      ...atrs.map(a => ({ ...a, docType: 'atr' as const })),
-      ...its.map(i => ({ ...i, docType: 'it' as const }))
-    ]
-    .filter(d => d.sector === sector)
-    .sort((a, b) => a.id.localeCompare(b.id))[0];
+    // Respeita o filtro de tipo (POP/ATR/IT) já selecionado — antes disso
+    // juntava os três tipos e pegava o primeiro por ordem alfabética do
+    // ID, ignorando o filtro (ex: filtrando por POP e clicando num setor
+    // abria a primeira ATR daquele setor, já que "ATR-001" vem antes de
+    // "POP-001" em ordem alfabética).
+    const candidates = [
+      ...(selectedType === 'Todos' || selectedType === 'POP' ? pops.map(p => ({ ...p, docType: 'pop' as const })) : []),
+      ...(selectedType === 'Todos' || selectedType === 'ATR' ? atrs.map(a => ({ ...a, docType: 'atr' as const })) : []),
+      ...(selectedType === 'Todos' || selectedType === 'IT' ? its.map(i => ({ ...i, docType: 'it' as const })) : [])
+    ];
+    const firstDoc = candidates
+      .filter(d => d.sector === sector)
+      .sort((a, b) => a.id.localeCompare(b.id))[0];
 
     if (firstDoc) {
       setSelectedDocId(firstDoc.id);
@@ -2634,10 +2640,15 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Preview list for active type */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1">
+                  {/* Preview list for active type — com um tipo específico
+                      selecionado (POP/ATR/IT), mostra a lista completa
+                      (rolável, o container já tem overflow-y-auto); o
+                      limite de 4 é só pro modo "Todos", como amostra de
+                      cada categoria. Antes o limite valia sempre, e a
+                      única forma de ver o resto era navegando por setor. */}
+                  <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto pr-1 ${selectedType === 'Todos' ? 'max-h-60' : 'max-h-96'}`}>
                     {(selectedType === 'Todos' || selectedType === 'POP' ? pops : [])
-                      .slice(0, 4)
+                      .slice(0, selectedType === 'POP' ? undefined : 4)
                       .map(doc => (
                         <button
                           key={doc.id}
@@ -2670,7 +2681,7 @@ export default function App() {
                       ))}
 
                     {(selectedType === 'Todos' || selectedType === 'ATR' ? atrs : [])
-                      .slice(0, 4)
+                      .slice(0, selectedType === 'ATR' ? undefined : 4)
                       .map(doc => (
                         <button
                           key={doc.id}
