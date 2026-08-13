@@ -29,6 +29,15 @@ export default function UploadDocumentModal({
   onSaved
 }: UploadDocumentModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Trava de duplo-clique: `disabled={uploading}` no botão não é rápido
+  // o bastante sozinho — dois cliques bem próximos podem chamar
+  // handleSubmit duas vezes ANTES do React re-renderizar o botão
+  // desabilitado, gerando dois documentos reais no Firestore (foi
+  // exatamente o que aconteceu em teste: upload "duplicado" que não
+  // era bug de exibição, era duas gravações de verdade). Um ref muda
+  // de valor na hora, de forma síncrona, então barra a segunda chamada
+  // mesmo nesse intervalo entre cliques e re-render.
+  const submittingRef = useRef(false);
 
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -76,6 +85,7 @@ export default function UploadDocumentModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return; // já tem um envio em andamento — ignora clique duplicado
     setError(null);
 
     if (!file) {
@@ -105,6 +115,7 @@ export default function UploadDocumentModal({
       return;
     }
 
+    submittingRef.current = true;
     setUploading(true);
     setProgress(0);
     setRetryInfo(null);
@@ -170,6 +181,7 @@ export default function UploadDocumentModal({
           ? 'Suas permissões ainda estão sincronizando após o login. Aguarde um instante e tente enviar de novo.'
           : err?.message || 'Falha ao enviar o documento. Tente novamente.'
       );
+      submittingRef.current = false;
       setUploading(false);
       setRetryInfo(null);
     }
