@@ -41,8 +41,8 @@ export function resolveUserSectorId(
 async function waitForClaimsSync(
   expectedRole: string,
   expectedSectorId: string | null,
-  maxAttempts = 6,
-  delayMs = 1500
+  maxAttempts = 10,
+  delayMs = 2000
 ): Promise<void> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const user = auth.currentUser;

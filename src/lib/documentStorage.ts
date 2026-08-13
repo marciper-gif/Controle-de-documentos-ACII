@@ -1,6 +1,6 @@
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { doc, collection } from 'firebase/firestore';
-import { storage, db } from './firebase';
+import { storage, db, auth } from './firebase';
 
 // Restrições de upload (item 2 da especificação) — validadas aqui no
 // cliente antes de enviar; o storage.rules também valida tamanho/tipo
@@ -68,15 +68,19 @@ const RETRY_DELAYS_MS = [4000, 8000, 15000, 25000];
  * (caminho definido no item 2 da especificação) e retorna a URL de
  * download + o caminho salvo no Storage.
  *
- * As Storage Rules deste projeto são "cross-service": elas consultam o
- * Firestore (auth_links/{uid}) pra saber o papel/setor de quem está
- * enviando. O Firebase documenta que essa leitura cross-service é
- * "eventualmente consistente", podendo ficar desatualizada por até ~60s
- * logo depois que o vínculo é gravado/atualizado (ex: login recente,
- * sessão recém-restaurada). Nesse intervalo, um upload legítimo pode
- * tomar storage/unauthorized mesmo com o vínculo já correto no Firestore.
- * Por isso, só para esse erro específico, tentamos de novo automaticamente
- * com espera crescente antes de desistir e mostrar erro pro usuário.
+ * As Storage Rules deste projeto leem papel/setor via Custom Claims do
+ * Firebase Auth (request.auth.token.role/.sectorId), sincronizados por
+ * uma Cloud Function (syncAuthLinkClaims) sempre que auth_links/{uid}
+ * muda no Firestore. Isso é quase instantâneo, mas não é garantido —
+ * cold start da function, latência de rede, etc. Se o SDK do Storage
+ * ainda estiver usando um ID token emitido ANTES desses claims serem
+ * gravados, o upload nega mesmo com tudo certo no backend.
+ *
+ * IMPORTANTE: o Firebase JS SDK só busca um token novo quando mandamos
+ * explicitamente (getIdToken(true)) — sozinho, ele reusa o token em
+ * cache até expirar (~1h). Por isso, a cada nova tentativa aqui, forçamos
+ * esse refresh antes de tentar de novo: sem isso, repetir o upload só
+ * repete o mesmo token velho pra sempre, e o retry nunca ajuda de verdade.
  */
 export async function uploadGuardedDocumentFile(
   file: File,
@@ -98,6 +102,11 @@ export async function uploadGuardedDocumentFile(
 
       onRetry?.(attempt + 1, RETRY_DELAYS_MS.length + 1);
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+      try {
+        await auth.currentUser?.getIdToken(true);
+      } catch (refreshErr) {
+        console.warn('Falha ao renovar token antes de repetir o upload:', refreshErr);
+      }
     }
   }
 
