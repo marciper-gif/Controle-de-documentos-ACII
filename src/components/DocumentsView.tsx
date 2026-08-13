@@ -151,9 +151,16 @@ export default function DocumentsView({
     setSearchLoading(true);
     const resultsBySector = new Map<string, GuardedDocument[]>();
     const mergeAndPublish = () => {
-      const merged = Array.from(resultsBySector.values())
-        .flat()
-        .sort((a, b) => a.title.localeCompare(b.title));
+      // dedupe por id: cada consulta é escopada por setor, mas o
+      // onSnapshot de um setor pode disparar mais de uma vez pro mesmo
+      // resultado (ex: uma entrega "do cache" seguida da confirmação
+      // "do servidor") — sem isso, o mesmo documento podia aparecer
+      // repetido na lista combinada.
+      const byId = new Map<string, GuardedDocument>();
+      for (const docs of resultsBySector.values()) {
+        for (const doc of docs) byId.set(doc.id, doc);
+      }
+      const merged = Array.from(byId.values()).sort((a, b) => a.title.localeCompare(b.title));
       setSearchResults(merged);
     };
     const unsubscribes = sectors.map(sector =>
