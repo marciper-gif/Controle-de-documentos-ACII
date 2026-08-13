@@ -1302,7 +1302,11 @@ export default function App() {
   const [formEmissionDate, setFormEmissionDate] = useState('25/06/2026');
   const [formRevision, setFormRevision] = useState('00');
   const [formRevisionDescription, setFormRevisionDescription] = useState('');
-  
+  // Admin-only: quando marcado, salva as mudanças de conteúdo SEM avançar
+  // o número de revisão (nem registrar entrada no histórico de revisões)
+  // — por padrão (desmarcado) o comportamento continua o mesmo de sempre.
+  const [keepRevisionOnEdit, setKeepRevisionOnEdit] = useState(false);
+
   // POP Specific Form Fields
   const [formObjective, setFormObjective] = useState('');
   const [formAppField, setFormAppField] = useState('');
@@ -1476,11 +1480,11 @@ export default function App() {
       const isContentChanged = getIsContentChanged();
 
       if (editingId && originalATR) {
-        if (isContentChanged) {
+        if (isContentChanged && !keepRevisionOnEdit) {
           const currentRev = originalATR.revision || '00';
           const nextRevNum = parseInt(currentRev, 10);
           nextRev = isNaN(nextRevNum) ? '01' : String(nextRevNum + 1).padStart(2, '0');
-          
+
           const initialHistory: RevisionHistoryEntry[] = originalATR.revisionHistory || [
             {
               revision: currentRev,
@@ -1497,7 +1501,8 @@ export default function App() {
           };
           updatedHistory = [...initialHistory, newEntry];
         } else {
-          // If content didn't change, preserve revision and history
+          // Conteúdo não mudou, OU mudou mas o admin marcou "manter
+          // revisão atual" — preserva revisão e histórico sem avançar.
           nextRev = originalATR.revision || '00';
           updatedHistory = originalATR.revisionHistory;
         }
@@ -1520,7 +1525,7 @@ export default function App() {
         },
         emissionDate: formEmissionDate,
         revision: nextRev,
-        revisionDate: editingId ? (isContentChanged ? todayStr : originalATR?.revisionDate) : undefined,
+        revisionDate: editingId ? (isContentChanged && !keepRevisionOnEdit ? todayStr : originalATR?.revisionDate) : undefined,
         revisionHistory: updatedHistory
       };
 
@@ -1544,11 +1549,11 @@ export default function App() {
       const isContentChanged = getIsContentChanged();
 
       if (editingId && originalIT) {
-        if (isContentChanged) {
+        if (isContentChanged && !keepRevisionOnEdit) {
           const currentRev = originalIT.revision || '00';
           const nextRevNum = parseInt(currentRev, 10);
           nextRev = isNaN(nextRevNum) ? '01' : String(nextRevNum + 1).padStart(2, '0');
-          
+
           const initialHistory: RevisionHistoryEntry[] = originalIT.revisionHistory || [
             {
               revision: currentRev,
@@ -1565,7 +1570,8 @@ export default function App() {
           };
           updatedHistory = [...initialHistory, newEntry];
         } else {
-          // If content didn't change, preserve revision and history
+          // Conteúdo não mudou, OU mudou mas o admin marcou "manter
+          // revisão atual" — preserva revisão e histórico sem avançar.
           nextRev = originalIT.revision || '00';
           updatedHistory = originalIT.revisionHistory;
         }
@@ -1580,7 +1586,7 @@ export default function App() {
         steps: formSteps.split('\n').map(s => s.trim()).filter(Boolean),
         emissionDate: formEmissionDate,
         revision: nextRev,
-        revisionDate: editingId ? (isContentChanged ? todayStr : originalIT?.revisionDate) : undefined,
+        revisionDate: editingId ? (isContentChanged && !keepRevisionOnEdit ? todayStr : originalIT?.revisionDate) : undefined,
         revisionHistory: updatedHistory
       };
 
@@ -1617,11 +1623,11 @@ export default function App() {
       const isContentChanged = getIsContentChanged();
 
       if (editingId && originalPOP) {
-        if (isContentChanged) {
+        if (isContentChanged && !keepRevisionOnEdit) {
           const currentRev = originalPOP.revision || '00';
           const nextRevNum = parseInt(currentRev, 10);
           nextRev = isNaN(nextRevNum) ? '01' : String(nextRevNum + 1).padStart(2, '0');
-          
+
           const initialHistory: RevisionHistoryEntry[] = originalPOP.revisionHistory || [
             {
               revision: currentRev,
@@ -1638,7 +1644,8 @@ export default function App() {
           };
           updatedHistory = [...initialHistory, newEntry];
         } else {
-          // If content didn't change, preserve revision and history
+          // Conteúdo não mudou, OU mudou mas o admin marcou "manter
+          // revisão atual" — preserva revisão e histórico sem avançar.
           nextRev = originalPOP.revision || '00';
           updatedHistory = originalPOP.revisionHistory;
         }
@@ -1651,7 +1658,7 @@ export default function App() {
         sector: formSector,
         emissionDate: formEmissionDate,
         revision: nextRev,
-        revisionDate: editingId ? (isContentChanged ? todayStr : originalPOP?.revisionDate) : undefined,
+        revisionDate: editingId ? (isContentChanged && !keepRevisionOnEdit ? todayStr : originalPOP?.revisionDate) : undefined,
         revisionHistory: updatedHistory,
         pages: '1 de 1',
         objective: formObjective,
@@ -1755,6 +1762,7 @@ export default function App() {
     setFormEmissionDate('25/06/2026');
     setFormRevision('00');
     setFormRevisionDescription('');
+    setKeepRevisionOnEdit(false);
   };
 
   // Open fresh modal
@@ -3806,8 +3814,22 @@ export default function App() {
                       type="text"
                       value={formRevision}
                       onChange={e => setFormRevision(e.target.value)}
-                      className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none"
+                      disabled={editingId !== null && keepRevisionOnEdit}
+                      className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                     />
+                    {editingId !== null && currentUser?.role === 'admin' && (
+                      <label className="flex items-start gap-2 mt-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={keepRevisionOnEdit}
+                          onChange={e => setKeepRevisionOnEdit(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        />
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                          Manter revisão atual (não avançar para a próxima, mesmo alterando o conteúdo)
+                        </span>
+                      </label>
+                    )}
                   </div>
                   {formDocType === 'pop' && (
                     <div>
@@ -4070,7 +4092,7 @@ export default function App() {
 
                 {/* Descrição da Alteração para Revisão (Apenas se for Edição) */}
                 {editingId !== null && (
-                  getIsContentChanged() ? (
+                  getIsContentChanged() && !keepRevisionOnEdit ? (
                     <div className="p-4 bg-amber-500/5 dark:bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-2 mt-4">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
@@ -4081,9 +4103,9 @@ export default function App() {
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                         Alteração de conteúdo detectada! Ao salvar esta edição, ela será registrada como a nova revisão <strong>{
                           (() => {
-                            const originalDoc = formDocType === 'atr' 
-                              ? atrs.find(a => a.id === editingId) 
-                              : formDocType === 'it' 
+                            const originalDoc = formDocType === 'atr'
+                              ? atrs.find(a => a.id === editingId)
+                              : formDocType === 'it'
                               ? its.find(i => i.id === editingId)
                               : pops.find(p => p.id === editingId);
                             const currentRev = originalDoc?.revision || '00';
@@ -4101,6 +4123,27 @@ export default function App() {
                         className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-slate-200 focus:outline-none focus:border-amber-500 shadow-sm"
                       />
                     </div>
+                  ) : getIsContentChanged() && keepRevisionOnEdit ? (
+                    <div className="p-4 bg-sky-500/5 dark:bg-sky-500/5 border border-sky-500/20 rounded-xl space-y-2 mt-4">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+                        <label className="block text-xs font-bold text-slate-950 dark:text-sky-400 uppercase tracking-wider font-display">
+                          Revisão será mantida
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                        Alteração de conteúdo detectada, mas "Manter revisão atual" está marcado — ao salvar, o conteúdo é atualizado sem avançar a revisão nem gerar entrada no histórico. A versão continua como revisão <strong>{
+                          (() => {
+                            const originalDoc = formDocType === 'atr'
+                              ? atrs.find(a => a.id === editingId)
+                              : formDocType === 'it'
+                              ? its.find(i => i.id === editingId)
+                              : pops.find(p => p.id === editingId);
+                            return originalDoc?.revision || '00';
+                          })()
+                        }</strong>.
+                      </p>
+                    </div>
                   ) : (
                     <div className="p-4 bg-slate-500/5 dark:bg-slate-500/5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 mt-4">
                       <div className="flex items-center gap-2">
@@ -4112,9 +4155,9 @@ export default function App() {
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                         Apenas metadados (como o setor) foram alterados ou nenhuma alteração foi realizada nos textos principais. <strong>Nenhuma nova revisão será gerada</strong> e a versão atual (revisão {
                           (() => {
-                            const originalDoc = formDocType === 'atr' 
-                              ? atrs.find(a => a.id === editingId) 
-                              : formDocType === 'it' 
+                            const originalDoc = formDocType === 'atr'
+                              ? atrs.find(a => a.id === editingId)
+                              : formDocType === 'it'
                               ? its.find(i => i.id === editingId)
                               : pops.find(p => p.id === editingId);
                             return originalDoc?.revision || '00';
