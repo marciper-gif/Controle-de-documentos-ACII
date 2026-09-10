@@ -3,15 +3,19 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─────────────────────────────────────────────────────────────────
-    // O login principal do app (CPF/matrícula + senha) é validado 100%
-    // no cliente (src/lib/userManagement.ts) e NUNCA usa o Firebase Auth
-    // diretamente — só quem entra com "Entrar com o Google" tem uma
-    // sessão real. Por isso o app cria uma sessão anônima do Firebase
-    // Auth como ponte (ensureAnonymousAuth, em src/config/firebase.ts) e
-    // grava o vínculo usuário/papel/setor em auth_links/{uid}
-    // (src/lib/authLink.ts) logo após qualquer login bem-sucedido.
-    // Estas regras dependem desse vínculo para saber quem está pedindo
-    // o quê — sem ele, `request.auth` existe mas não tem papel nenhum.
+    // O login principal do app (CPF/matrícula + senha) é validado pela
+    // Cloud Function `login` (functions/index.js, Admin SDK — ignora
+    // estas regras), NUNCA no cliente. O app cria uma sessão anônima do
+    // Firebase Auth como ponte (ensureAnonymousAuth, em
+    // src/config/firebase.ts) ANTES do login, só pra ter um
+    // request.auth.uid; a própria Cloud Function grava o vínculo
+    // usuário/papel/setor em auth_links/{uid} depois de validar a senha
+    // no servidor. Quem entra com "Entrar com o Google" passa pela
+    // Cloud Function `linkGoogleUser`, mesmo motivo. Estas regras
+    // dependem desse vínculo para saber quem está pedindo o quê — sem
+    // ele, `request.auth` existe mas não tem papel nenhum. O CLIENTE
+    // NUNCA escreve auth_links diretamente (ver a regra logo abaixo) —
+    // só essas duas Cloud Functions podem.
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
@@ -50,12 +54,26 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // auth_links: cada sessão só enxerga e só grava o PRÓPRIO vínculo.
-    // É assim que uma sessão anônima ou do Google se conecta ao usuário,
-    // papel e setor reais logo após o login.
+    // auth_links: cada sessão só enxerga o PRÓPRIO vínculo, e não pode
+    // mais escrevê-lo diretamente. Antes disso, uma sessão anônima
+    // (criada automaticamente pra QUALQUER visitante, antes até de
+    // logar) podia gravar auth_links/{uid} = {role: 'admin'} direto pelo
+    // SDK do cliente e virar administrador sem nunca ter feito login —
+    // a Cloud Function syncAuthLinkClaims (functions/index.js) espelhava
+    // esse papel forjado pros Custom Claims cegamente. Agora só as
+    // Cloud Functions login/linkGoogleUser (Admin SDK, ignora estas
+    // regras) gravam este documento, depois de validar usuário/senha ou
+    // a sessão do Google no servidor.
     // ─────────────────────────────────────────────────────────────────
     match /auth_links/{uid} {
-      allow read, write: if isAuthenticated() && request.auth.uid == uid;
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // login_attempts: contador de tentativas de login (força bruta) —
+    // só a Cloud Function login o lê/grava (Admin SDK, ignora regras).
+    match /login_attempts/{attemptId} {
+      allow read, write: if false;
     }
 
     // Setores: leitura para qualquer sessão autenticada (inclui a anônima
@@ -89,16 +107,33 @@ service cloud.firestore {
       allow write: if isAdmin() || isGestor();
     }
 
-    // Usuários (contas de acesso, incluindo hash de senha). Precisa
-    // continuar legível por qualquer sessão autenticada porque o login
-    // por CPF/senha consulta esta coleção ANTES de terminar de logar
-    // (ainda não dá pra checar papel/setor nesse momento) — mas já exige
-    // pelo menos uma sessão do Firebase (o que barra acesso direto de
-    // fora do app). Escrita: admin/gestor (gestão de contas) ou o próprio
-    // usuário dono da sessão (troca de senha, primeiro acesso).
+    // Usuários (contas de acesso — hash de senha, papel, status).
+    // ANTES: legível por qualquer sessão autenticada, inclusive a
+    // anônima criada automaticamente pra todo visitante — ou seja,
+    // qualquer pessoa que abrisse o site conseguia ler CPF e hash de
+    // senha de todo mundo. O login agora é validado inteiramente na
+    // Cloud Function `login` (Admin SDK, ignora estas regras), então o
+    // cliente não precisa mais ler esta coleção pra logar — só admin/
+    // gestor (telas de gestão) ou o próprio dono do registro.
+    //
+    // Escrita: admin/gestor grava qualquer campo (gestão de contas). O
+    // próprio usuário só pode alterar o PRÓPRIO documento, e nunca os
+    // campos que definem seu nível de acesso (role, employeeId, status,
+    // accountStatus) — sem isso, qualquer colaborador logado poderia
+    // simplesmente gravar role:"admin" no próprio registro pelo SDK do
+    // cliente. Trocar a própria senha passa pela Cloud Function
+    // `setPassword` (Admin SDK) e não escreve mais aqui direto.
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor() || currentUserId() == userId;
+      allow read: if isAdmin() || isGestor() || currentUserId() == userId;
+      allow create: if isAdmin() || isGestor();
+      allow update: if isAdmin() || isGestor() || (
+        currentUserId() == userId &&
+        request.resource.data.get('role', null) == resource.data.get('role', null) &&
+        request.resource.data.get('employeeId', null) == resource.data.get('employeeId', null) &&
+        request.resource.data.get('status', null) == resource.data.get('status', null) &&
+        request.resource.data.get('accountStatus', null) == resource.data.get('accountStatus', null)
+      );
+      allow delete: if isAdmin();
     }
 
     // Permissões de perfis — só admin define o que cada papel pode fazer.

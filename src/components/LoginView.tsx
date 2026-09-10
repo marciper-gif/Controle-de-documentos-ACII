@@ -46,7 +46,7 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
     setLoading(true);
 
     try {
-      const res = await fazerLogin(username, password, users);
+      const res = await fazerLogin(username, password);
 
       if (res.precisaTrocarSenha) {
         setPendingUser(res.userData);

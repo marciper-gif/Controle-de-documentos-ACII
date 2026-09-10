@@ -54,10 +54,13 @@ export default function TrocaSenha({ userId, userAccount, onSuccess, onCancel }:
     try {
       const res = await trocarSenha(userId, novaSenha);
 
+      // Não guardamos a senha (nem em texto puro, nem um "hash" falso)
+      // no estado local — a Cloud Function `setPassword` já gravou o
+      // hash de verdade no Firestore. O objeto local só precisa refletir
+      // que o primeiro acesso foi concluído.
+      const { password: _oldPassword, passwordHash: _oldHash, ...userAccountWithoutPassword } = userAccount;
       const updatedUser: UserAccount = {
-        ...userAccount,
-        password: novaSenha,
-        passwordHash: novaSenha,
+        ...userAccountWithoutPassword,
         firstAccess: false,
         primeiro_acesso: false,
         accountStatus: 'ativo',
