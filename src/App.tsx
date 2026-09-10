@@ -61,9 +61,10 @@ import DocumentsView from './components/DocumentsView';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { onSnapshot, collection, doc } from 'firebase/firestore';
+import { onSnapshot, collection, doc, getDoc } from 'firebase/firestore';
 import { auth, db, ensureAnonymousAuth } from './lib/firebase';
-import { linkFirebaseAuthToAppUser } from './lib/authLink';
+import { linkGoogleUserCallable } from './lib/functions';
+import { hashPassword } from './lib/userManagement';
 import {
   seedDatabaseIfEmpty,
   dbSaveSector,
@@ -451,13 +452,11 @@ export default function App() {
     setCurrentUser(user);
     localStorage.setItem('ms-current-user', JSON.stringify(user));
 
-    // Login por CPF/senha não passa pelo Firebase Auth (é validado no
-    // cliente). Garantimos uma sessão anônima e vinculamos a esse usuário
-    // em auth_links/{uid}, para que as Firestore Rules saibam quem é e
-    // qual o papel/setor dessa sessão.
-    ensureAnonymousAuth()
-      .then(uid => linkFirebaseAuthToAppUser(uid, user, employees, sectors))
-      .catch(e => console.warn('Falha ao preparar sessão autenticada após login:', e));
+    // A Cloud Function `login` (chamada dentro de fazerLogin, em
+    // src/lib/userManagement.ts) já validou a senha no servidor e já
+    // gravou auth_links/{uid} lá — o cliente não escreve mais isso
+    // diretamente (ver o comentário grande em functions/index.js sobre
+    // por que essa mudança fecha uma falha de segurança real).
   };
 
   const handleLogout = () => {
@@ -696,19 +695,35 @@ export default function App() {
       .slice(0, 2);
   }, [currentUser]);
 
-  // Garante que auth_links/{uid} está vinculado ao currentUser certo
-  // sempre que existir uma sessão do Firebase Auth (authReady) — não só
-  // no momento do login. Sem isso, uma sessão RESTAURADA do localStorage
-  // após recarregar a página (sem passar por handleLogin de novo) pode
-  // ficar com um request.auth.uid sem nenhum auth_links correspondente
-  // (ou apontando pra um vínculo antigo/de outra sessão), fazendo o
-  // Firestore/Storage negar mesmo pra quem é admin de verdade.
+  // Confere se auth_links/{uid} ainda corresponde ao currentUser
+  // restaurado do localStorage após recarregar a página. O cliente NÃO
+  // pode mais gravar esse vínculo (só as Cloud Functions login/
+  // linkGoogleUser podem — ver firestore.rules e o comentário grande em
+  // functions/index.js), então isto é só uma checagem de leitura: na
+  // grande maioria dos casos a sessão anônima persiste no navegador
+  // entre recarregamentos e o vínculo gravado no login original continua
+  // válido (nada a fazer). Se a sessão do Firebase Auth foi perdida (ex.:
+  // storage do navegador parcialmente limpo) e uma sessão anônima NOVA
+  // foi criada, não existe vínculo correspondente — nesse caso, em vez
+  // de reconstruir o vínculo confiando cegamente no que está no
+  // localStorage (que era exatamente a falha de segurança antiga),
+  // pedimos um novo login.
   useEffect(() => {
-    if (!authReady || !currentUser || !currentUser.password) return;
-    ensureAnonymousAuth()
-      .then(uid => linkFirebaseAuthToAppUser(uid, currentUser, employees, sectors))
-      .catch(e => console.warn('Falha ao (re)vincular sessão autenticada:', e));
-  }, [authReady, currentUser, employees, sectors]);
+    if (!authReady || !currentUser) return;
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser || !firebaseUser.isAnonymous) return; // sessão do Google tem seu próprio fluxo, abaixo
+
+    getDoc(doc(db, 'auth_links', firebaseUser.uid))
+      .then(snap => {
+        const linked = snap.exists() ? (snap.data() as { userId?: string }) : null;
+        if (linked && linked.userId === currentUser.id) return; // vínculo já válido
+
+        console.warn('Sessão restaurada sem vínculo de autenticação correspondente — solicitando novo login.');
+        setCurrentUser(null);
+        localStorage.removeItem('ms-current-user');
+      })
+      .catch(e => console.warn('Falha ao verificar vínculo da sessão restaurada:', e));
+  }, [authReady, currentUser?.id]);
 
   // Listen to Firebase Auth state
   useEffect(() => {
@@ -734,56 +749,10 @@ export default function App() {
       }
 
       if (firebaseUser) {
-        // Logged in via Google Sign-In
-        const userEmail = firebaseUser.email || '';
-        const isRuntimeAdmin = userEmail.toLowerCase() === 'marciper@gmail.com';
-
-        // Check if employee with this email exists
-        let matchedEmployee = employees.find(emp => emp.email.toLowerCase() === userEmail.toLowerCase());
-        let userRole: 'admin' | 'gestor' | 'colaborador' | 'lider' = isRuntimeAdmin ? 'admin' : 'colaborador';
-        let employeeId = matchedEmployee?.id;
-
-        if (matchedEmployee) {
-          // Determine default role based on employee's job title
-          const roleLower = matchedEmployee.role.toLowerCase();
-          const isLeadership = roleLower.includes('gerente') || 
-                              roleLower.includes('coordenador') || 
-                              roleLower.includes('diretor') || 
-                              roleLower.includes('supervisor') || 
-                              roleLower.includes('lider') ||
-                              roleLower.includes('gestor');
-          userRole = isLeadership ? 'gestor' : 'colaborador';
-        }
-
-        if (isRuntimeAdmin) {
-          userRole = 'admin';
-        }
-
-        const firebaseUserAccount: UserAccount = {
-          id: firebaseUser.uid,
-          username: userEmail.split('@')[0],
-          name: firebaseUser.displayName || 'Usuário Google',
-          role: userRole,
-          employeeId: employeeId,
-          password: '' // no password needed for Google SSO
-        };
-
-        // Add to users list and update state
-        rawSetUsers(prev => {
-          if (!prev.some(u => u.id === firebaseUserAccount.id)) {
-            const updated = [...prev, firebaseUserAccount];
-            dbSaveUserAccount(firebaseUserAccount);
-            return updated;
-          }
-          return prev;
-        });
-
-        setCurrentUser(firebaseUserAccount);
-        localStorage.setItem('ms-current-user', JSON.stringify(firebaseUserAccount));
-
-        // Mesmo motivo do ramo da sessão anônima acima: espera o ID token
-        // resolver antes de liberar authReady, pra evitar permission-denied
-        // nas primeiras leituras do Firestore.
+        // Logged in via Google Sign-In. Mesmo motivo do ramo da sessão
+        // anônima abaixo: espera o ID token resolver antes de liberar
+        // authReady, pra evitar permission-denied nas primeiras leituras
+        // do Firestore.
         try {
           await firebaseUser.getIdToken();
         } catch (e) {
@@ -791,9 +760,28 @@ export default function App() {
         }
         setAuthReady(true);
 
-        // Vincula esta sessão real do Firebase Auth ao usuário/papel/setor,
-        // para as Firestore Rules (mesmo mecanismo do login por CPF/senha).
-        linkFirebaseAuthToAppUser(firebaseUser.uid, firebaseUserAccount, employees, sectors);
+        // O papel (admin/gestor/colaborador) e o vínculo com o
+        // funcionário/setor são resolvidos no SERVIDOR pela Cloud
+        // Function linkGoogleUser — o cliente não decide mais sozinho
+        // qual papel esta conta deveria ter (ver comentário grande em
+        // functions/index.js). Ela também grava auth_links/{uid}.
+        try {
+          const result = await linkGoogleUserCallable();
+          const data = result.data as { success: boolean; userId: string; userData: UserAccount };
+          const googleUserAccount = data.userData;
+
+          rawSetUsers(prev => {
+            if (!prev.some(u => u.id === googleUserAccount.id)) {
+              return [...prev, googleUserAccount];
+            }
+            return prev.map(u => (u.id === googleUserAccount.id ? { ...u, ...googleUserAccount } : u));
+          });
+
+          setCurrentUser(googleUserAccount);
+          localStorage.setItem('ms-current-user', JSON.stringify(googleUserAccount));
+        } catch (e) {
+          console.error('Falha ao vincular sessão do Google:', e);
+        }
 
         // Seed DB if empty
         await seedDatabaseIfEmpty();
@@ -918,34 +906,59 @@ export default function App() {
     // comentário na declaração do estado (removida), mais acima.
     // DocumentsView.tsx assina só o setor/página que está aberta.
 
-    // Real-time Users subscription
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const list: UserAccount[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as UserAccount);
-      });
-      if (list.length > 0) {
-        rawSetUsers(prev => {
-          const map = new Map<string, UserAccount>();
-          prev.forEach(item => map.set(item.id, item));
-          list.forEach(item => {
-            const existingKey = Array.from(map.keys()).find(k => 
-              k === item.id || 
-              (map.get(k)?.username && item.username && map.get(k)!.username.toLowerCase() === item.username.toLowerCase())
-            );
-            if (existingKey) {
-              map.delete(existingKey);
-            }
-            map.set(item.id, item);
+    // Real-time Users subscription. A coleção inteira só é legível por
+    // admin/gestor/lider agora (ver firestore.rules — antes qualquer
+    // sessão autenticada, inclusive a anônima de todo visitante, lia
+    // usuário e hash de senha de todo mundo). Qualquer outra sessão só
+    // assina o PRÓPRIO registro logo abaixo (unsubOwnUser).
+    const isAccountManager = currentUser?.role === 'admin' || currentUser?.role === 'gestor' || currentUser?.role === 'lider';
+
+    const unsubUsers = isAccountManager
+      ? onSnapshot(collection(db, 'users'), (snapshot) => {
+          const list: UserAccount[] = [];
+          snapshot.forEach((doc) => {
+            list.push(doc.data() as UserAccount);
           });
-          const result = Array.from(map.values());
-          localStorage.setItem('ms-users', JSON.stringify(result));
-          return result;
-        });
-      }
-    }, (err) => {
-      console.warn("Firestore snapshot error (users):", err);
-    });
+          if (list.length > 0) {
+            rawSetUsers(prev => {
+              const map = new Map<string, UserAccount>();
+              prev.forEach(item => map.set(item.id, item));
+              list.forEach(item => {
+                const existingKey = Array.from(map.keys()).find(k =>
+                  k === item.id ||
+                  (map.get(k)?.username && item.username && map.get(k)!.username.toLowerCase() === item.username.toLowerCase())
+                );
+                if (existingKey) {
+                  map.delete(existingKey);
+                }
+                map.set(item.id, item);
+              });
+              const result = Array.from(map.values());
+              localStorage.setItem('ms-users', JSON.stringify(result));
+              return result;
+            });
+          }
+        }, (err) => {
+          console.warn("Firestore snapshot error (users):", err);
+        })
+      : () => {};
+
+    const unsubOwnUser = (!isAccountManager && currentUser)
+      ? onSnapshot(doc(db, 'users', currentUser.id), (docSnap) => {
+          if (!docSnap.exists()) return;
+          const updated = docSnap.data() as UserAccount;
+          rawSetUsers(prev => {
+            const map = new Map<string, UserAccount>();
+            prev.forEach(item => map.set(item.id, item));
+            map.set(updated.id, updated);
+            const result = Array.from(map.values());
+            localStorage.setItem('ms-users', JSON.stringify(result));
+            return result;
+          });
+        }, (err) => {
+          console.warn("Firestore snapshot error (own user):", err);
+        })
+      : () => {};
 
     // Real-time Permissions subscription
     const unsubPermissions = onSnapshot(doc(db, 'permissions', 'default'), (docSnap) => {
@@ -963,6 +976,7 @@ export default function App() {
       unsubPOPs();
       unsubITs();
       unsubUsers();
+      unsubOwnUser();
       unsubPermissions();
     };
   }, [currentUser, authReady]);
@@ -1022,63 +1036,82 @@ export default function App() {
       .replace(/\s+/g, '.');          // replace spaces with dots
   };
 
-  // Sync employees to users to ensure each has a default account with password '123'
+  // Sync employees to users: garante que todo funcionário tenha uma
+  // conta de acesso com senha inicial padrão. Só roda pra quem administra
+  // contas (admin/gestor/lider) — antes rodava pra qualquer sessão
+  // logada, o que além de desnecessário já esbarraria na regra de
+  // escrita do Firestore pra qualquer outro papel. Nunca grava a senha
+  // em texto puro (só o hash) e já marca a conta como pendente de troca
+  // no primeiro acesso — antes, a senha padrão "123" ficava valendo
+  // indefinidamente até alguém trocar manualmente.
   useEffect(() => {
-    let updated = false;
-    const currentUsers = [...users];
+    const isAccountManager = currentUser?.role === 'admin' || currentUser?.role === 'gestor' || currentUser?.role === 'lider';
+    if (!isAccountManager) return;
 
-    employees.forEach(emp => {
-      // Check if employee already has a linked user account
-      const hasAccount = currentUsers.some(u => u.employeeId === emp.id);
-      if (!hasAccount) {
-        // Create standard account: username = normalized name, password = '123'
-        const baseUsername = normalizeUsername(emp.name);
-        // Ensure username is unique
-        let finalUsername = baseUsername;
-        let counter = 1;
-        while (currentUsers.some(u => u.username.toLowerCase() === finalUsername.toLowerCase())) {
-          finalUsername = `${baseUsername}${counter}`;
-          counter++;
-        }
+    let cancelled = false;
 
-        // Determine default role based on employee's job title
-        const roleLower = emp.role.toLowerCase();
-        const isLeadership = roleLower.includes('gerente') || 
-                            roleLower.includes('coordenador') || 
-                            roleLower.includes('diretor') || 
-                            roleLower.includes('supervisor') || 
-                            roleLower.includes('lider') ||
-                            roleLower.includes('gestor');
-        const defaultRole: 'colaborador' | 'gestor' = isLeadership ? 'gestor' : 'colaborador';
+    (async () => {
+      const currentUsers = [...users];
+      let updated = false;
 
-        const newAccount: UserAccount = {
-          id: `user-emp-${emp.id}`,
-          username: finalUsername,
-          name: emp.name,
-          password: '123',
-          role: defaultRole,
-          employeeId: emp.id
-        };
-        currentUsers.push(newAccount);
-        updated = true;
-      } else {
-        // Keep the name in sync if they changed their name in the employee card
-        const matchedIndex = currentUsers.findIndex(u => u.employeeId === emp.id);
-        if (matchedIndex !== -1 && currentUsers[matchedIndex].name !== emp.name) {
-          currentUsers[matchedIndex] = {
-            ...currentUsers[matchedIndex],
-            name: emp.name
+      for (const emp of employees) {
+        // Check if employee already has a linked user account
+        const hasAccount = currentUsers.some(u => u.employeeId === emp.id);
+        if (!hasAccount) {
+          // Create standard account: username = normalized name, password = '123'
+          const baseUsername = normalizeUsername(emp.name);
+          // Ensure username is unique
+          let finalUsername = baseUsername;
+          let counter = 1;
+          while (currentUsers.some(u => u.username.toLowerCase() === finalUsername.toLowerCase())) {
+            finalUsername = `${baseUsername}${counter}`;
+            counter++;
+          }
+
+          // Determine default role based on employee's job title
+          const roleLower = emp.role.toLowerCase();
+          const isLeadership = roleLower.includes('gerente') ||
+                              roleLower.includes('coordenador') ||
+                              roleLower.includes('diretor') ||
+                              roleLower.includes('supervisor') ||
+                              roleLower.includes('lider') ||
+                              roleLower.includes('gestor');
+          const defaultRole: 'colaborador' | 'gestor' = isLeadership ? 'gestor' : 'colaborador';
+
+          const passwordHash = await hashPassword('123');
+          const newAccount: UserAccount = {
+            id: `user-emp-${emp.id}`,
+            username: finalUsername,
+            name: emp.name,
+            passwordHash,
+            role: defaultRole,
+            employeeId: emp.id,
+            primeiro_acesso: true,
+            firstAccess: true
           };
+          currentUsers.push(newAccount);
           updated = true;
+        } else {
+          // Keep the name in sync if they changed their name in the employee card
+          const matchedIndex = currentUsers.findIndex(u => u.employeeId === emp.id);
+          if (matchedIndex !== -1 && currentUsers[matchedIndex].name !== emp.name) {
+            currentUsers[matchedIndex] = {
+              ...currentUsers[matchedIndex],
+              name: emp.name
+            };
+            updated = true;
+          }
         }
       }
-    });
 
-    if (updated) {
-      setUsers(currentUsers);
-      localStorage.setItem('ms-users', JSON.stringify(currentUsers));
-    }
-  }, [employees]);
+      if (!cancelled && updated) {
+        setUsers(currentUsers);
+        localStorage.setItem('ms-users', JSON.stringify(currentUsers));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [employees, currentUser?.role]);
 
   // Current main view tab selection: 'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace'
   // Inicializado a partir da URL carregada (link direto/compartilhado/recarregado

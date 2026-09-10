@@ -155,9 +155,6 @@ export default function AdminUsersModal({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Password visibility for each user ID
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
-
   // Temporary passwords being edited before saving
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({});
 
@@ -168,13 +165,16 @@ export default function AdminUsersModal({
     }));
   };
 
-  const handleSaveTempPassword = (userId: string) => {
+  const handleSaveTempPassword = async (userId: string) => {
     const passwordToSave = tempPasswords[userId];
-    if (passwordToSave === undefined) return;
-    
+    if (passwordToSave === undefined || passwordToSave.trim() === '') return;
+
+    // Nunca grava a senha em texto puro — só o hash (ver comentário
+    // grande em functions/index.js).
+    const passwordHash = await hashPassword(passwordToSave);
     const updatedUsers = users.map(u => {
       if (u.id === userId) {
-        return { ...u, password: passwordToSave };
+        return { ...u, passwordHash, primeiro_acesso: true, firstAccess: true };
       }
       return u;
     });
@@ -216,19 +216,14 @@ export default function AdminUsersModal({
     setTimeout(() => setSuccess(null), 3000);
   };
 
-  const togglePasswordVisibility = (userId: string) => {
-    setVisiblePasswords(prev => ({
-      ...prev,
-      [userId]: !prev[userId]
-    }));
-  };
-
   const handleStartEdit = (user: UserAccount) => {
     setEditingUserId(user.id);
     setIsAddingNew(true);
     setFormName(user.name);
     setFormUsername(user.username);
-    setFormPassword(user.password || '');
+    // A senha não fica mais guardada em texto puro, então o campo começa
+    // vazio: deixar em branco mantém a senha atual, digitar algo a troca.
+    setFormPassword('');
     setFormRole(user.role);
     setFormEmployeeId(user.employeeId || '');
     setFormStatus(user.status || 'Ativo');
@@ -296,12 +291,12 @@ export default function AdminUsersModal({
       if (u.id === userId) {
         const updatedAcc: UserAccount = {
           ...u,
-          password: defaultPass,
           passwordHash: passHash,
           primeiro_acesso: true,
           firstAccess: true,
           lastPasswordChange: undefined
         };
+        delete (updatedAcc as any).password;
         dbSaveUserAccount(updatedAcc);
         return updatedAcc;
       }
@@ -351,7 +346,6 @@ export default function AdminUsersModal({
             ...u,
             name: formName.trim(),
             username: formUsername.trim(),
-            password: newPass || u.password,
             passwordHash: passHash || u.passwordHash,
             role: formRole,
             employeeId: formEmployeeId || undefined,
@@ -360,6 +354,7 @@ export default function AdminUsersModal({
             primeiro_acesso: formPrimeiroAcesso,
             firstAccess: formPrimeiroAcesso
           };
+          delete (updatedAcc as any).password; // nunca gravar senha em texto puro
           dbSaveUserAccount(updatedAcc);
           return updatedAcc;
         }
@@ -375,7 +370,6 @@ export default function AdminUsersModal({
         id: `user-${Date.now()}`,
         name: formName.trim(),
         username: formUsername.trim(),
-        password: initialPass,
         passwordHash: passHash,
         role: formRole,
         employeeId: formEmployeeId || undefined,
@@ -461,7 +455,6 @@ export default function AdminUsersModal({
       id: emp.id,
       username: finalUsername,
       name: emp.name,
-      password: defaultPassword,
       passwordHash: passHash,
       role: defaultRole,
       employeeId: emp.id,
@@ -476,10 +469,11 @@ export default function AdminUsersModal({
     setTimeout(() => setSuccess(null), 5000);
   };
 
-  const handleUpdatePassword = (employeeId: string, newPassword: string) => {
+  const handleUpdatePassword = async (employeeId: string, newPassword: string) => {
+    const passwordHash = await hashPassword(newPassword);
     const updatedUsers = users.map(u => {
       if (u.employeeId === employeeId) {
-        return { ...u, password: newPassword };
+        return { ...u, passwordHash, primeiro_acesso: true, firstAccess: true };
       }
       return u;
     });
@@ -727,14 +721,14 @@ export default function AdminUsersModal({
                                       <Lock className="w-2.5 h-2.5 text-slate-400 shrink-0" />
                                       <input
                                         type="text"
-                                        value={tempPasswords[userAcc.id] !== undefined ? tempPasswords[userAcc.id] : (userAcc.password || '')}
+                                        value={tempPasswords[userAcc.id] ?? ''}
                                         onChange={(e) => handleTempPasswordChange(userAcc.id, e.target.value)}
                                         className="w-full bg-transparent text-[11px] text-slate-850 dark:text-slate-155 focus:outline-none font-mono"
-                                        placeholder="Senha"
-                                        title="Digite a nova senha e salve"
+                                        placeholder="Nova senha"
+                                        title="Digite uma nova senha e salve (a senha atual não fica mais visível, por segurança)"
                                       />
                                     </div>
-                                    {tempPasswords[userAcc.id] !== undefined && tempPasswords[userAcc.id] !== userAcc.password && (
+                                    {tempPasswords[userAcc.id] !== undefined && tempPasswords[userAcc.id].trim() !== '' && (
                                       <button
                                         type="button"
                                         onClick={() => handleSaveTempPassword(userAcc.id)}
@@ -1577,10 +1571,10 @@ export default function AdminUsersModal({
                       <label className="block text-3xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 pl-1">Senha de Entrada</label>
                       <input
                         type="text"
-                        required
+                        required={!editingUserId}
                         value={formPassword}
                         onChange={e => setFormPassword(e.target.value)}
-                        placeholder="Defina uma senha"
+                        placeholder={editingUserId ? 'Deixe em branco para manter a senha atual' : 'Defina uma senha'}
                         className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
                       />
                     </div>
@@ -1664,7 +1658,6 @@ export default function AdminUsersModal({
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {users.map(u => {
                     const isSelf = u.id === currentUser.id;
-                    const isPassVisible = visiblePasswords[u.id] || false;
                     const isUserActive = (u.status || 'Ativo') === 'Ativo' || (u.accountStatus || 'ativo') === 'ativo';
                     const isFirstAccessPending = u.primeiro_acesso === true || u.firstAccess === true;
 
@@ -1699,18 +1692,16 @@ export default function AdminUsersModal({
                           {u.username}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono bg-slate-100 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 px-2.5 py-1 rounded-lg text-slate-700 dark:text-slate-350">
-                              {isPassVisible ? u.password : '••••••••'}
-                            </span>
-                            <button
-                              onClick={() => togglePasswordVisibility(u.id)}
-                              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer rounded"
-                              title={isPassVisible ? "Esconder Senha" : "Mostrar Senha"}
-                            >
-                              {isPassVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
+                          {/* A senha não fica mais guardada em texto puro (ver
+                              functions/index.js), então não há mais como
+                              "mostrar" a senha atual — só redefinir uma nova,
+                              pelo botão "Resetar Senha" nas Ações. */}
+                          <span
+                            className="font-mono bg-slate-100 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 px-2.5 py-1 rounded-lg text-slate-400 dark:text-slate-500"
+                            title="Por segurança, a senha não pode mais ser exibida. Use 'Resetar Senha' para definir uma nova."
+                          >
+                            ••••••••
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <button

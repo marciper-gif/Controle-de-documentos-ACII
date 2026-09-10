@@ -72,11 +72,15 @@ export async function seedDatabaseIfEmpty() {
     const usersSnap = await getDocs(collection(db, 'users'));
     if (usersSnap.empty) {
       console.log('Seeding default users...');
+      // Nunca gravar o campo `password` em texto puro — só o hash (ver
+      // comentário grande em functions/index.js sobre por que isso
+      // importa). Estas são só as credenciais INICIAIS de instalação;
+      // o admin deve trocar a senha no primeiro acesso.
       const adminHash = await hashPassword('admin');
       const collabHash = await hashPassword('Colaborador123');
       const defaultUsers: UserAccount[] = [
-        { id: '1', username: 'admin', name: 'Administrador Geral', password: 'admin', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
-        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: 'Colaborador123', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
+        { id: '1', username: 'admin', name: 'Administrador Geral', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
+        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
       ];
       for (const user of defaultUsers) {
         await salvarDocumento('users', user, user.id);

@@ -17,19 +17,24 @@
  * de graça, sem nenhuma consulta cross-service. Só o Admin SDK (rodando
  * em uma Cloud Function, nunca no cliente) pode gravar custom claims —
  * daí esta function: toda vez que auth_links/{uid} é criado/atualizado
- * pelo app (ver src/lib/authLink.ts), ela espelha role/sectorId pros
- * custom claims daquele uid no Firebase Auth.
+ * (hoje só pelas Cloud Functions login/linkGoogleUser, mais abaixo neste
+ * arquivo — o cliente não tem mais permissão de escrita direta nessa
+ * coleção, ver firestore.rules), ela espelha role/sectorId pros custom
+ * claims daquele uid no Firebase Auth.
  *
- * O cliente, depois de gravar em auth_links, força um refresh do ID
- * token (getIdTokenResult(true), com retry) até ver os claims batendo —
- * só então tenta o upload/leitura no Storage. Ver waitForClaimsSync em
+ * O cliente, depois de logar, força um refresh do ID token
+ * (getIdTokenResult(true), com retry) até ver os claims batendo — só
+ * então tenta o upload/leitura no Storage. Ver waitForSessionClaims em
  * src/lib/authLink.ts.
  */
 
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { logger } = require('firebase-functions');
+const crypto = require('crypto');
 
 initializeApp();
 
@@ -37,6 +42,41 @@ initializeApp();
 // Se o banco Firestore for recriado/renomeado, atualizar aqui também
 // (mesmo cuidado documentado no topo de storage.rules e firestore.rules).
 const FIRESTORE_DATABASE_ID = 'ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900';
+const REGION = 'us-central1';
+
+function db() {
+  return getFirestore(FIRESTORE_DATABASE_ID);
+}
+
+// Mesmo algoritmo do hashPassword do cliente (src/lib/userManagement.ts):
+// SHA-256 em hex sobre os bytes UTF-8 da senha. Mantido idêntico de
+// propósito para que hashes já gravados no Firestore por versões antigas
+// do cliente continuem validando sem precisar de migração de algoritmo.
+function sha256Hex(input) {
+  return crypto.createHash('sha256').update(String(input), 'utf8').digest('hex');
+}
+
+/**
+ * Resolve o SectorData.id de um usuário a partir do Employee vinculado —
+ * mesma lógica de resolveUserSectorId em src/lib/authLink.ts, mas rodando
+ * aqui (Admin SDK, servidor) porque authLink.ts deixou de poder escrever
+ * auth_links diretamente (ver nota grande acima de exports.login).
+ */
+async function resolveSectorIdForEmployee(firestore, employeeId) {
+  if (!employeeId) return null;
+  const empSnap = await firestore.collection('employees').doc(employeeId).get();
+  if (!empSnap.exists) return null;
+  const employee = empSnap.data();
+  if (!employee.sector) return null;
+  const sectorsSnap = await firestore.collection('sectors').get();
+  for (const sectorDoc of sectorsSnap.docs) {
+    const s = sectorDoc.data();
+    if (s.name === employee.sector || s.id === employee.sector || sectorDoc.id === employee.sector) {
+      return s.id || sectorDoc.id;
+    }
+  }
+  return null;
+}
 
 exports.syncAuthLinkClaims = onDocumentWritten(
   {
@@ -71,3 +111,292 @@ exports.syncAuthLinkClaims = onDocumentWritten(
     }
   }
 );
+
+// ───────────────────────────────────────────────────────────────────────
+// login / linkGoogleUser / setPassword
+// ─────────────────────────────────────────────────────────────────────
+// HISTÓRICO: até aqui, o login por CPF/matrícula + senha era validado
+// 100% no navegador (src/lib/userManagement.ts lia a coleção `users`
+// inteira do Firestore e comparava a senha em JavaScript). Isso exigia
+// que `users` fosse legível por qualquer sessão autenticada — inclusive
+// a sessão anônima que o app cria automaticamente para TODO visitante,
+// antes mesmo do login. Na prática, qualquer pessoa que abrisse o site
+// conseguia ler CPF e senha (em texto puro) de todos os funcionários.
+// Além disso, existia um atalho fixo no código (usuário "admin" com
+// senha "admin" sempre entrava, não importa o que estivesse no banco) e
+// auth_links/{uid} — de onde as Firestore/Storage Rules tiram o papel e
+// o setor da sessão — podia ser escrito livremente pelo próprio cliente,
+// então bastava chamar setDoc(auth_links/{uid}, {role:'admin'}) direto
+// no console do navegador para virar administrador sem nunca logar.
+//
+// A correção: a verificação de usuário/senha passa a rodar aqui, com o
+// Admin SDK (que ignora as Firestore Rules), e SOMENTE esta function
+// grava auth_links/{uid} — o cliente perdeu a permissão de escrita
+// direta nessa coleção (ver firestore.rules). `users` também deixou de
+// ser legível por qualquer sessão autenticada (ver firestore.rules) —
+// só admin/gestor ou o próprio dono do registro.
+// ───────────────────────────────────────────────────────────────────────
+
+const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_ATTEMPT_MAX = 10;
+
+/**
+ * login({ username, password })
+ * Requer uma sessão do Firebase Auth já existente (mesmo anônima — é a
+ * sessão-ponte criada por ensureAnonymousAuth no carregamento da página).
+ * Em caso de sucesso, grava auth_links/{request.auth.uid} e devolve o
+ * perfil do usuário SEM nenhum campo de senha.
+ */
+exports.login = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sessão inválida. Recarregue a página e tente novamente.');
+  }
+
+  const username = String(request.data?.username || '').trim();
+  const password = String(request.data?.password || '');
+  if (!username || !password) {
+    throw new HttpsError('invalid-argument', 'Informe usuário e senha.');
+  }
+
+  const usernameLower = username.toLowerCase();
+  const cpfDigits = username.replace(/\D/g, '');
+  const firestore = db();
+
+  // Limitação de tentativas por login (defesa contra força bruta — antes
+  // não existia nenhuma, já que a senha nem chegava a ser validada aqui).
+  const attemptsRef = firestore.collection('login_attempts').doc(usernameLower || 'desconhecido');
+  const attemptsSnap = await attemptsRef.get();
+  const now = Date.now();
+  if (attemptsSnap.exists) {
+    const data = attemptsSnap.data();
+    if (data.count >= LOGIN_ATTEMPT_MAX && data.firstAttemptAt && (now - data.firstAttemptAt) < LOGIN_ATTEMPT_WINDOW_MS) {
+      throw new HttpsError('resource-exhausted', 'Muitas tentativas de login. Aguarde alguns minutos e tente novamente.');
+    }
+  }
+
+  const registerFailedAttempt = async () => {
+    let count = 1;
+    let firstAttemptAt = now;
+    if (attemptsSnap.exists) {
+      const data = attemptsSnap.data();
+      if (data.firstAttemptAt && (now - data.firstAttemptAt) < LOGIN_ATTEMPT_WINDOW_MS) {
+        count = (data.count || 0) + 1;
+        firstAttemptAt = data.firstAttemptAt;
+      }
+    }
+    await attemptsRef.set({ count, firstAttemptAt });
+  };
+
+  const usersRef = firestore.collection('users');
+  let userDoc = null;
+  let snap = await usersRef.where('username', '==', username).limit(1).get();
+  if (snap.empty && username !== usernameLower) {
+    snap = await usersRef.where('username', '==', usernameLower).limit(1).get();
+  }
+  if (snap.empty && cpfDigits) {
+    snap = await usersRef.where('username', '==', cpfDigits).limit(1).get();
+  }
+  if (!snap.empty) userDoc = snap.docs[0];
+
+  if (!userDoc) {
+    await registerFailedAttempt();
+    throw new HttpsError('not-found', 'Usuário não encontrado. Verifique o CPF/Login informado.');
+  }
+
+  const userData = userDoc.data();
+  const accountStatus = String(userData.accountStatus || userData.status || 'ativo').toLowerCase();
+  if (accountStatus === 'inativo') {
+    throw new HttpsError('permission-denied', 'Conta inativa. Contate o administrador.');
+  }
+  if (accountStatus === 'bloqueado') {
+    throw new HttpsError('permission-denied', 'Conta bloqueada. Contate o administrador.');
+  }
+
+  const storedHash = userData.passwordHash || '';
+  if (!storedHash) {
+    await registerFailedAttempt();
+    throw new HttpsError('permission-denied', 'Conta sem senha configurada. Contate o administrador.');
+  }
+
+  const candidateHashes = [sha256Hex(password), sha256Hex(password.toLowerCase())];
+  const senhaCorreta = candidateHashes.includes(storedHash);
+
+  if (!senhaCorreta) {
+    await registerFailedAttempt();
+    throw new HttpsError('permission-denied', 'Senha incorreta.');
+  }
+
+  await attemptsRef.delete().catch(() => {});
+
+  const role = userData.role || 'colaborador';
+  const sectorId = await resolveSectorIdForEmployee(firestore, userData.employeeId);
+
+  await firestore.collection('auth_links').doc(request.auth.uid).set(
+    {
+      userId: userDoc.id,
+      role,
+      sectorId,
+      updatedAt: FieldValue.serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  const precisaTrocarSenha = role !== 'admin' && (userData.firstAccess === true || userData.primeiro_acesso === true);
+
+  return {
+    success: true,
+    userId: userDoc.id,
+    precisaTrocarSenha,
+    userData: {
+      id: userDoc.id,
+      username: userData.username,
+      name: userData.name,
+      role,
+      employeeId: userData.employeeId,
+      status: userData.status,
+      accountStatus: userData.accountStatus,
+      primeiro_acesso: userData.primeiro_acesso,
+      firstAccess: userData.firstAccess,
+      lastPasswordChange: userData.lastPasswordChange
+    }
+  };
+});
+
+const RUNTIME_ADMIN_EMAIL = 'marciper@gmail.com';
+
+/**
+ * linkGoogleUser()
+ * Chamado pelo cliente logo após "Entrar com o Google" ter sucesso.
+ * Calcula o papel (admin de runtime / gestor / colaborador, pelo cargo do
+ * funcionário vinculado) no servidor, grava/atualiza users/{uid} e
+ * auth_links/{uid}, e devolve o perfil já resolvido — o cliente não
+ * decide mais o próprio papel sozinho.
+ */
+exports.linkGoogleUser = onCall({ region: REGION }, async (request) => {
+  const token = request.auth?.token;
+  if (!request.auth || !token?.email) {
+    throw new HttpsError('unauthenticated', 'É necessário estar autenticado com o Google.');
+  }
+
+  const uid = request.auth.uid;
+  const email = token.email;
+  const emailLower = email.toLowerCase();
+  const displayName = token.name || 'Usuário Google';
+  const firestore = db();
+  const isRuntimeAdmin = emailLower === RUNTIME_ADMIN_EMAIL;
+
+  let matchedEmployee = null;
+  const empSnap = await firestore.collection('employees').where('email', '==', email).limit(1).get();
+  if (!empSnap.empty) {
+    matchedEmployee = { id: empSnap.docs[0].id, ...empSnap.docs[0].data() };
+  } else {
+    // E-mail pode estar salvo com outra caixa — verificação adicional
+    // (coleção de funcionários costuma ser pequena, custo aceitável).
+    const allEmp = await firestore.collection('employees').get();
+    const found = allEmp.docs.find((d) => (d.data().email || '').toLowerCase() === emailLower);
+    if (found) matchedEmployee = { id: found.id, ...found.data() };
+  }
+
+  let role = isRuntimeAdmin ? 'admin' : 'colaborador';
+  if (matchedEmployee && !isRuntimeAdmin) {
+    const roleLower = String(matchedEmployee.role || '').toLowerCase();
+    const isLeadership = ['gerente', 'coordenador', 'diretor', 'supervisor', 'lider', 'gestor'].some((k) =>
+      roleLower.includes(k)
+    );
+    role = isLeadership ? 'gestor' : 'colaborador';
+  }
+
+  const existingSnap = await firestore.collection('users').doc(uid).get();
+  const employeeId = matchedEmployee ? matchedEmployee.id : existingSnap.data()?.employeeId;
+
+  const userDataToSave = {
+    id: uid,
+    username: emailLower.split('@')[0],
+    name: displayName,
+    role,
+    employeeId: employeeId || FieldValue.delete(),
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  await firestore.collection('users').doc(uid).set(userDataToSave, { merge: true });
+
+  const sectorId = await resolveSectorIdForEmployee(firestore, employeeId);
+  await firestore.collection('auth_links').doc(uid).set(
+    { userId: uid, role, sectorId, updatedAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+
+  return {
+    success: true,
+    userId: uid,
+    userData: {
+      id: uid,
+      username: userDataToSave.username,
+      name: displayName,
+      role,
+      employeeId: employeeId || undefined
+    }
+  };
+});
+
+/**
+ * setPassword({ targetUserId, newPassword })
+ * Substitui trocarSenha/resetarSenha (que gravavam a senha em texto puro
+ * direto do navegador). Permitido para o próprio usuário (troca de senha
+ * normal — marca a conta como acesso concluído) ou para admin/gestor
+ * agindo sobre outra conta (reset — marca a conta como pendente de troca
+ * no próximo login, igual ao comportamento anterior). Nunca grava o
+ * campo `password` em texto puro — só `passwordHash`.
+ */
+exports.setPassword = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sessão inválida. Recarregue a página e tente novamente.');
+  }
+
+  const targetUserId = String(request.data?.targetUserId || '').trim();
+  const newPassword = String(request.data?.newPassword || '');
+  if (!targetUserId || !newPassword) {
+    throw new HttpsError('invalid-argument', 'Dados incompletos para alterar a senha.');
+  }
+  if (newPassword.length < 3) {
+    throw new HttpsError('invalid-argument', 'A senha é muito curta.');
+  }
+
+  const firestore = db();
+  const authLinkSnap = await firestore.collection('auth_links').doc(request.auth.uid).get();
+  const callerLink = authLinkSnap.exists ? authLinkSnap.data() : null;
+  const callerRole = callerLink?.role;
+  const callerUserId = callerLink?.userId;
+
+  const isSelf = callerUserId === targetUserId;
+  const isPrivileged = callerRole === 'admin' || callerRole === 'gestor' || callerRole === 'lider';
+
+  if (!isSelf && !isPrivileged) {
+    throw new HttpsError('permission-denied', 'Sem permissão para alterar a senha deste usuário.');
+  }
+
+  const targetSnap = await firestore.collection('users').doc(targetUserId).get();
+  if (!targetSnap.exists) {
+    throw new HttpsError('not-found', 'Usuário não encontrado.');
+  }
+
+  const passwordHash = sha256Hex(newPassword);
+  const nowFormatted = new Date().toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  await firestore.collection('users').doc(targetUserId).update({
+    passwordHash,
+    password: FieldValue.delete(),
+    firstAccess: !isSelf,
+    primeiro_acesso: !isSelf,
+    lastPasswordChange: nowFormatted,
+    updatedAt: FieldValue.serverTimestamp()
+  });
+
+  return { success: true, userId: targetUserId, lastPasswordChange: nowFormatted };
+});

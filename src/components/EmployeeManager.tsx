@@ -194,7 +194,6 @@ export default function EmployeeManager({
         id: newEmpId,
         username: usernameLogin,
         name: formName,
-        password: defaultPassword,
         passwordHash: passHash,
         role: 'colaborador',
         employeeId: newEmpId,
