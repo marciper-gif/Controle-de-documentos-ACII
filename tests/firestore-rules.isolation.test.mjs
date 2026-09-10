@@ -76,6 +76,9 @@ before(async () => {
     await setDoc(doc(db, 'permissions', 'acii'), { colaborador: { canSeeAllDocs: true }, gestor: { canSeeAllDocs: true } });
     await setDoc(doc(db, 'permissions', 'beta'), { colaborador: { canSeeAllDocs: false }, gestor: { canSeeAllDocs: true } });
 
+    await setDoc(doc(db, 'document_type_settings', 'acii'), { atr: { enabled: true, label: 'ATR' } });
+    await setDoc(doc(db, 'document_type_settings', 'beta'), { atr: { enabled: false, label: 'Ficha Técnica' } });
+
     await setDoc(doc(db, 'guarded_documents', 'doc-acii-1'), { id: 'doc-acii-1', companyId: 'acii', sectorId: 'SEC-ACII-1', title: 'Contrato ACII' });
     await setDoc(doc(db, 'guarded_documents', 'doc-beta-1'), { id: 'doc-beta-1', companyId: 'beta', sectorId: 'SEC-BETA-1', title: 'Contrato Beta' });
   });
@@ -170,6 +173,20 @@ test('admin da ACII NÃO lê nem escreve as permissões da Beta', async () => {
   const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
   await assertFails(getDoc(doc(db, 'permissions', 'beta')));
   await assertFails(setDoc(doc(db, 'permissions', 'beta'), { colaborador: { canSeeAllDocs: true }, gestor: { canSeeAllDocs: true } }));
+});
+
+// ── Tipos de documento (document_type_settings/{companyId}) ────────
+
+test('admin da ACII lê e escreve os tipos de documento da própria empresa', async () => {
+  const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
+  await assertSucceeds(getDoc(doc(db, 'document_type_settings', 'acii')));
+  await assertSucceeds(setDoc(doc(db, 'document_type_settings', 'acii'), { atr: { enabled: false, label: 'ATR' } }));
+});
+
+test('admin da ACII NÃO lê nem escreve os tipos de documento da Beta', async () => {
+  const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
+  await assertFails(getDoc(doc(db, 'document_type_settings', 'beta')));
+  await assertFails(setDoc(doc(db, 'document_type_settings', 'beta'), { atr: { enabled: true, label: 'Invasão' } }));
 });
 
 // ── Documentos guardados (guarded_documents) ────────────────────────

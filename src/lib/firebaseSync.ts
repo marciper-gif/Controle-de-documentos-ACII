@@ -7,7 +7,7 @@ import {
 import { db } from './firebase';
 import { salvarDocumento, deletarDocumento } from '../config/firebase';
 import { logSystemEvent } from '../utils/logger';
-import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument } from '../types';
+import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument, DocumentTypeSettings } from '../types';
 
 import { syncLoginIndex } from './userManagement';
 
@@ -97,6 +97,13 @@ export async function dbDeleteUserAccount(id: string, currentUser?: any) {
 // match /permissions/{permCompanyId}.
 export async function dbSavePermissions(companyId: string, perms: ProfilePermissions, currentUser?: any) {
   return await salvarDocumento('permissions', perms, companyId, currentUser);
+}
+
+// --- TIPOS DE DOCUMENTO (Fase 2) ---
+// Um documento por empresa (ID = companyId) — ver firestore.rules,
+// match /document_type_settings/{dtCompanyId}.
+export async function dbSaveDocumentTypeSettings(companyId: string, settings: DocumentTypeSettings, currentUser?: any) {
+  return await salvarDocumento('document_type_settings', settings, companyId, currentUser);
 }
 
 // --- GUARDED DOCUMENTS CRUD (Módulo de Guarda de Documentos) ---

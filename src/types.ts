@@ -20,6 +20,29 @@ export interface Company {
   createdAt?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Fase 2 — tipos de documento configuráveis por empresa
+// ─────────────────────────────────────────────────────────────────────
+// ATR, POP, IT e "Digitalizado" continuam sendo o diferencial do
+// produto e continuam guardados exatamente como antes (coleções
+// próprias `atrs`/`pops`/`its`, e `guarded_documents` para os
+// digitalizados) — isto NÃO muda a estrutura de dados nem as
+// permissões (ProfilePermissions continua igual, por papel, não por
+// tipo). O que fica configurável por empresa é só a CAMADA DE
+// APRESENTAÇÃO de cada um desses 4 tipos: se aparece no menu
+// (`enabled`) e com qual nome (`label`) — por exemplo, uma empresa que
+// não usa Instruções de Trabalho pode desativá-las, e uma empresa que
+// chama "ATR" de outro jeito internamente pode renomear só o rótulo,
+// sem afetar em nada os dados já cadastrados.
+export type DocumentTypeKey = 'atr' | 'pop' | 'it' | 'digitalizado';
+
+export interface DocumentTypeSetting {
+  enabled: boolean;
+  label: string;
+}
+
+export type DocumentTypeSettings = Record<DocumentTypeKey, DocumentTypeSetting>;
+
 export interface SectorData {
   id: string;
   companyId: string;

@@ -221,6 +221,15 @@ service cloud.firestore {
       allow write: if isAdmin() && permCompanyId == currentCompanyId();
     }
 
+    // Tipos de documento (Fase 2) — um documento por empresa
+    // (ID = companyId), mesmo padrão de `permissions`. Só controla
+    // apresentação (nome exibido / ativo-inativo dos 4 tipos padrão:
+    // ATR, POP, IT, Digitalizado) — nunca a estrutura de dados em si.
+    match /document_type_settings/{dtCompanyId} {
+      allow read: if isAuthenticated() && dtCompanyId == currentCompanyId();
+      allow write: if isAdmin() && dtCompanyId == currentCompanyId();
+    }
+
     // Logs de auditoria do sistema: qualquer sessão autenticada pode
     // registrar um evento da própria empresa; só admin lê o histórico
     // completo, e só o da própria empresa.

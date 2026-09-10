@@ -44,7 +44,7 @@ import {
   Archive
 } from 'lucide-react';
 
-import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry } from './types';
+import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry, DocumentTypeSettings } from './types';
 import { exportElementToPdf } from './utils/pdfExport';
 import { getDefaultInitialPassword, hashPassword } from './lib/userManagement';
 import { initialATRs } from './data/atrs';
@@ -78,7 +78,8 @@ import {
   dbDeleteIT,
   dbSaveUserAccount,
   dbDeleteUserAccount,
-  dbSavePermissions
+  dbSavePermissions,
+  dbSaveDocumentTypeSettings
 } from './lib/firebaseSync';
 
 
@@ -390,6 +391,42 @@ export default function App() {
     localStorage.setItem(cacheKey('ms-profile-permissions'), JSON.stringify(newPerms));
   };
 
+  // ─────────────────────────────────────────────────────────────────
+  // Fase 2 — tipos de documento configuráveis por empresa. Rótulos
+  // genéricos por padrão (nenhuma referência à ACII) — cada empresa
+  // pode ativar/desativar ou renomear, ver AdminUsersModal (aba "Tipos
+  // de Documento"). Isto controla só o que aparece no menu principal
+  // (filtro de tipo, cards de totais, cabeçalho de criação) — não muda
+  // a estrutura de dados nem as permissões (ver comentário em types.ts).
+  // ─────────────────────────────────────────────────────────────────
+  const DEFAULT_DOCUMENT_TYPE_SETTINGS: DocumentTypeSettings = {
+    atr: { enabled: true, label: 'ATR' },
+    pop: { enabled: true, label: 'POP' },
+    it: { enabled: true, label: 'Instrução de Trabalho' },
+    digitalizado: { enabled: true, label: 'Guarda de Documentos' }
+  };
+
+  const [documentTypeSettings, rawSetDocumentTypeSettings] = useState<DocumentTypeSettings>(() => {
+    const saved = localStorage.getItem(cacheKey('ms-document-type-settings'));
+    if (!saved) return DEFAULT_DOCUMENT_TYPE_SETTINGS;
+    try {
+      const parsed = JSON.parse(saved);
+      // Mescla com o padrão pra nunca faltar uma chave (ex: empresa
+      // antiga sem "digitalizado" salvo ainda).
+      return { ...DEFAULT_DOCUMENT_TYPE_SETTINGS, ...parsed };
+    } catch (e) {
+      return DEFAULT_DOCUMENT_TYPE_SETTINGS;
+    }
+  });
+
+  const setDocumentTypeSettings = useCallback((val: React.SetStateAction<DocumentTypeSettings>) => {
+    rawSetDocumentTypeSettings((prev) => {
+      const computed = typeof val === 'function' ? val(prev) : val;
+      if (currentUser?.companyId) dbSaveDocumentTypeSettings(currentUser.companyId, computed);
+      localStorage.setItem(cacheKey('ms-document-type-settings'), JSON.stringify(computed));
+      return computed;
+    });
+  }, [currentUser?.companyId]);
 
   const userPermissions = useMemo(() => {
     if (!currentUser) {
@@ -919,6 +956,16 @@ export default function App() {
       console.warn("Firestore snapshot error (permissions):", err);
     });
 
+    // Real-time Document Type Settings subscription (Fase 2) — mesmo
+    // padrão de permissions, um documento por empresa.
+    const unsubDocumentTypeSettings = onSnapshot(doc(db, 'document_type_settings', companyId), (docSnap) => {
+      if (docSnap.exists()) {
+        rawSetDocumentTypeSettings(prev => ({ ...prev, ...(docSnap.data() as DocumentTypeSettings) }));
+      }
+    }, (err) => {
+      console.warn("Firestore snapshot error (document_type_settings):", err);
+    });
+
     return () => {
       unsubSectors();
       unsubEmployees();
@@ -927,6 +974,7 @@ export default function App() {
       unsubITs();
       unsubUsers();
       unsubPermissions();
+      unsubDocumentTypeSettings();
     };
   }, [currentUser?.companyId, authReady]);
 
@@ -1984,27 +2032,29 @@ export default function App() {
                 </button>
               )}
 
-              <button
-                onClick={() => {
-                  setCurrentView('documentos');
-                  setSelectedDocId('');
-                }}
-                className={`relative px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                  currentView === 'documentos'
-                    ? 'text-rose-600 dark:text-rose-400 font-black'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
-                }`}
-              >
-                {currentView === 'documentos' && (
-                  <motion.div
-                    layoutId="activeNavBadge"
-                    className="absolute inset-0 bg-white dark:bg-slate-900 border border-rose-500/30 rounded-lg shadow-2xs"
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                  />
-                )}
-                <Archive className="w-3.5 h-3.5 z-10" />
-                <span className="z-10">Documentos</span>
-              </button>
+              {documentTypeSettings.digitalizado.enabled && (
+                <button
+                  onClick={() => {
+                    setCurrentView('documentos');
+                    setSelectedDocId('');
+                  }}
+                  className={`relative px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                    currentView === 'documentos'
+                      ? 'text-rose-600 dark:text-rose-400 font-black'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+                  }`}
+                >
+                  {currentView === 'documentos' && (
+                    <motion.div
+                      layoutId="activeNavBadge"
+                      className="absolute inset-0 bg-white dark:bg-slate-900 border border-rose-500/30 rounded-lg shadow-2xs"
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <Archive className="w-3.5 h-3.5 z-10" />
+                  <span className="z-10">{documentTypeSettings.digitalizado.label}</span>
+                </button>
+              )}
 
               <button
                 onClick={() => {
@@ -2152,7 +2202,7 @@ export default function App() {
               {currentView === 'portal' && <><BookOpen className="w-3.5 h-3.5 text-sky-500" /> Portal de Documentos</>}
               {currentView === 'employees' && <><Users className="w-3.5 h-3.5 text-indigo-500" /> Gestão de Colaboradores</>}
               {currentView === 'sectors' && <><Building className="w-3.5 h-3.5 text-amber-500" /> Matriz de Setores</>}
-              {currentView === 'documentos' && <><Archive className="w-3.5 h-3.5 text-rose-500" /> Guarda de Documentos</>}
+              {currentView === 'documentos' && <><Archive className="w-3.5 h-3.5 text-rose-500" /> {documentTypeSettings.digitalizado.label}</>}
               {currentView === 'workspace' && <><Cloud className="w-3.5 h-3.5 text-emerald-500" /> Google Workspace Integration</>}
             </span>
           </div>
@@ -2192,7 +2242,7 @@ export default function App() {
             {currentView === 'portal' && 'Portal de Documentos'}
             {currentView === 'employees' && 'Gestão de Colaboradores'}
             {currentView === 'sectors' && 'Matriz de Setores'}
-            {currentView === 'documentos' && 'Guarda de Documentos'}
+            {currentView === 'documentos' && documentTypeSettings.digitalizado.label}
             {currentView === 'workspace' && 'Google Workspace Integration'}
           </button>
 
@@ -2266,43 +2316,47 @@ export default function App() {
             {/* Statistics Widgets */}
         {!isFullScreen && (
           <section className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          <motion.div
-            whileHover={{ y: -3, scale: 1.01 }}
-            onClick={() => setSelectedType(selectedType === 'POP' ? 'Todos' : 'POP')}
-            className={`p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between backdrop-blur-xs cursor-pointer border ${
-              selectedType === 'POP'
-                ? 'bg-sky-500/10 dark:bg-sky-500/5 border-sky-500 ring-2 ring-sky-500/20 shadow-[0_0_15px_rgba(14,165,233,0.15)]'
-                : 'bg-white/80 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/80'
-            }`}
-          >
-            <div>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total POPs</span>
-              <h2 className="text-3xl font-black text-sky-600 dark:text-sky-400 font-display mt-1 tracking-tight">{totalPOPs}</h2>
-              <p className="text-[10px] text-slate-450 dark:text-slate-400/80 mt-1">Procedimentos Operacionais</p>
-            </div>
-            <div className="p-3 bg-sky-500/10 rounded-xl text-sky-600 dark:text-sky-400 border border-sky-500/25 shadow-[0_0_12px_rgba(14,165,233,0.15)]">
-              <Layers className="w-5.5 h-5.5" />
-            </div>
-          </motion.div>
+          {documentTypeSettings.pop.enabled && (
+            <motion.div
+              whileHover={{ y: -3, scale: 1.01 }}
+              onClick={() => setSelectedType(selectedType === 'POP' ? 'Todos' : 'POP')}
+              className={`p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between backdrop-blur-xs cursor-pointer border ${
+                selectedType === 'POP'
+                  ? 'bg-sky-500/10 dark:bg-sky-500/5 border-sky-500 ring-2 ring-sky-500/20 shadow-[0_0_15px_rgba(14,165,233,0.15)]'
+                  : 'bg-white/80 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/80'
+              }`}
+            >
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total {documentTypeSettings.pop.label}s</span>
+                <h2 className="text-3xl font-black text-sky-600 dark:text-sky-400 font-display mt-1 tracking-tight">{totalPOPs}</h2>
+                <p className="text-[10px] text-slate-450 dark:text-slate-400/80 mt-1">Procedimentos Operacionais</p>
+              </div>
+              <div className="p-3 bg-sky-500/10 rounded-xl text-sky-600 dark:text-sky-400 border border-sky-500/25 shadow-[0_0_12px_rgba(14,165,233,0.15)]">
+                <Layers className="w-5.5 h-5.5" />
+              </div>
+            </motion.div>
+          )}
 
-          <motion.div
-            whileHover={{ y: -3, scale: 1.01 }}
-            onClick={() => setSelectedType(selectedType === 'ATR' ? 'Todos' : 'ATR')}
-            className={`p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between backdrop-blur-xs cursor-pointer border ${
-              selectedType === 'ATR'
-                ? 'bg-indigo-500/10 dark:bg-indigo-500/5 border-indigo-500 ring-2 ring-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.15)]'
-                : 'bg-white/80 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/80'
-            }`}
-          >
-            <div>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total ATRs</span>
-              <h2 className="text-3xl font-black text-indigo-600 dark:text-indigo-400 font-display mt-1 tracking-tight">{totalATRs}</h2>
-              <p className="text-[10px] text-slate-450 dark:text-slate-400/80 mt-1">Atribuições de Funções</p>
-            </div>
-            <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400 border border-indigo-500/25 shadow-[0_0_12px_rgba(99,102,241,0.15)]">
-              <Briefcase className="w-5.5 h-5.5" />
-            </div>
-          </motion.div>
+          {documentTypeSettings.atr.enabled && (
+            <motion.div
+              whileHover={{ y: -3, scale: 1.01 }}
+              onClick={() => setSelectedType(selectedType === 'ATR' ? 'Todos' : 'ATR')}
+              className={`p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between backdrop-blur-xs cursor-pointer border ${
+                selectedType === 'ATR'
+                  ? 'bg-indigo-500/10 dark:bg-indigo-500/5 border-indigo-500 ring-2 ring-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.15)]'
+                  : 'bg-white/80 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/80'
+              }`}
+            >
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total {documentTypeSettings.atr.label}s</span>
+                <h2 className="text-3xl font-black text-indigo-600 dark:text-indigo-400 font-display mt-1 tracking-tight">{totalATRs}</h2>
+                <p className="text-[10px] text-slate-450 dark:text-slate-400/80 mt-1">Atribuições de Funções</p>
+              </div>
+              <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400 border border-indigo-500/25 shadow-[0_0_12px_rgba(99,102,241,0.15)]">
+                <Briefcase className="w-5.5 h-5.5" />
+              </div>
+            </motion.div>
+          )}
 
           <motion.div
             whileHover={{ y: -3, scale: 1.01 }}
@@ -2310,7 +2364,7 @@ export default function App() {
           >
             <div>
               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Setores Ativos</span>
-              <h2 className="text-3xl font-black text-amber-600 dark:text-amber-400 font-display mt-1 tracking-tight">8</h2>
+              <h2 className="text-3xl font-black text-amber-600 dark:text-amber-400 font-display mt-1 tracking-tight">{sectors.length}</h2>
               <p className="text-[10px] text-slate-450 dark:text-slate-400/80 mt-1">Organizados por lotes</p>
             </div>
             <div className="p-3 bg-amber-500/10 rounded-xl text-amber-600 dark:text-amber-400 border border-amber-500/25 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
@@ -2367,7 +2421,14 @@ export default function App() {
               <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tipo:</span>
               <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800">
-                {(['Todos', 'POP', 'ATR', 'IT'] as const).map(type => (
+                {(['Todos', 'POP', 'ATR', 'IT'] as const)
+                  .filter(type =>
+                    type === 'Todos' ||
+                    (type === 'POP' && documentTypeSettings.pop.enabled) ||
+                    (type === 'ATR' && documentTypeSettings.atr.enabled) ||
+                    (type === 'IT' && documentTypeSettings.it.enabled)
+                  )
+                  .map(type => (
                   <button
                     key={type}
                     onClick={() => setSelectedType(type)}
@@ -2377,7 +2438,7 @@ export default function App() {
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
                     }`}
                   >
-                    {type === 'Todos' ? 'Todos' : type === 'POP' ? 'POPs' : type === 'ATR' ? 'ATRs' : 'ITs'}
+                    {type === 'Todos' ? 'Todos' : type === 'POP' ? `${documentTypeSettings.pop.label}s` : type === 'ATR' ? `${documentTypeSettings.atr.label}s` : `${documentTypeSettings.it.label}s`}
                   </button>
                 ))}
               </div>
@@ -2561,19 +2622,20 @@ export default function App() {
                       <Zap className="w-4 h-4 text-amber-500" />
                       Acesso Rápido por Tipo de Documento
                     </h3>
-                    {userPermissions.canCreateDocs && (
+                    {userPermissions.canCreateDocs && documentTypeSettings.it.enabled && (
                       <button
                         onClick={() => handleOpenCreateModal('it')}
                         className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-md hover:shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        Nova Instrução de Trabalho (IT)
+                        Nova {documentTypeSettings.it.label}
                       </button>
                     )}
                   </div>
 
                   {/* Tabs headers */}
                   <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200/50 dark:border-slate-850 mb-4">
+                    {documentTypeSettings.pop.enabled && (
                     <button
                       onClick={() => setSelectedType('POP')}
                       className={`py-2 text-xs font-extrabold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
@@ -2583,8 +2645,10 @@ export default function App() {
                       }`}
                     >
                       <Layers className="w-3.5 h-3.5" />
-                      POPs ({pops.length})
+                      {documentTypeSettings.pop.label}s ({pops.length})
                     </button>
+                    )}
+                    {documentTypeSettings.atr.enabled && (
                     <button
                       onClick={() => setSelectedType('ATR')}
                       className={`py-2 text-xs font-extrabold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
@@ -2594,8 +2658,10 @@ export default function App() {
                       }`}
                     >
                       <Briefcase className="w-3.5 h-3.5" />
-                      ATRs ({atrs.length})
+                      {documentTypeSettings.atr.label}s ({atrs.length})
                     </button>
+                    )}
+                    {documentTypeSettings.it.enabled && (
                     <button
                       onClick={() => setSelectedType('IT')}
                       className={`py-2 text-xs font-extrabold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
@@ -2605,8 +2671,9 @@ export default function App() {
                       }`}
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      ITs ({its.length})
+                      {documentTypeSettings.it.label}s ({its.length})
                     </button>
+                    )}
                   </div>
 
                   {/* Preview list for active type — com um tipo específico
@@ -3623,7 +3690,7 @@ export default function App() {
               <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-850 flex justify-between items-center">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
-                    {editingId ? `Editar ${formId}` : `Criar Novo Documento: ${formDocType.toUpperCase()}`}
+                    {editingId ? `Editar ${formId}` : `Criar Novo Documento: ${documentTypeSettings[formDocType].label}`}
                   </h3>
                   <p className="text-3xs text-slate-400">Preencha os campos abaixo para salvar na base local de documentos da ACII</p>
                 </div>
@@ -3644,7 +3711,8 @@ export default function App() {
                     <label className="block text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tipo de Documento</label>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                       {/* POP option card */}
-                      <div 
+                      {documentTypeSettings.pop.enabled && (
+                      <div
                         onClick={() => {
                           setFormDocType('pop');
                           const nextIdNum = Math.max(...pops.map(p => parseInt(p.id.split('-')[1]) || 0), 0) + 1;
@@ -3660,15 +3728,17 @@ export default function App() {
                           <Layers className="w-5 h-5" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Procedimento (POP)</h4>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Procedimento ({documentTypeSettings.pop.label})</h4>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-normal">
                             Descreve o fluxo operacional, etapas sequenciais de processos e indicadores de desempenho.
                           </p>
                         </div>
                       </div>
-                      
+                      )}
+
                       {/* ATR option card */}
-                      <div 
+                      {documentTypeSettings.atr.enabled && (
+                      <div
                         onClick={() => {
                           setFormDocType('atr');
                           const nextIdNum = Math.max(...atrs.map(a => parseInt(a.id.split('-')[1]) || 0), 0) + 1;
@@ -3684,15 +3754,17 @@ export default function App() {
                           <Briefcase className="w-5 h-5" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Atribuição (ATR)</h4>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Atribuição ({documentTypeSettings.atr.label})</h4>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-normal">
                             Descreve as tarefas de um cargo, liderança direta/indireta, formação e competências técnicas ou atitudinais.
                           </p>
                         </div>
                       </div>
+                      )}
 
                       {/* IT option card */}
-                      <div 
+                      {documentTypeSettings.it.enabled && (
+                      <div
                         onClick={() => {
                           setFormDocType('it');
                           const nextIdNum = Math.max(...its.map(i => parseInt(i.id.split('-')[1]) || 0), 0) + 1;
@@ -3708,12 +3780,13 @@ export default function App() {
                           <FileText className="w-5 h-5" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Instrução de Trabalho (IT)</h4>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Instrução de Trabalho ({documentTypeSettings.it.label})</h4>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-normal">
                             Instruções simplificadas passo a passo de como fazer uma determinada tarefa de menor complexidade.
                           </p>
                         </div>
                       </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -4161,6 +4234,8 @@ export default function App() {
         onUpdateEmployees={setEmployees}
         profilePermissions={profilePermissions}
         onUpdatePermissions={handleUpdatePermissions}
+        documentTypeSettings={documentTypeSettings}
+        onUpdateDocumentTypeSettings={setDocumentTypeSettings}
         pops={pops}
         atrs={atrs}
         its={its}

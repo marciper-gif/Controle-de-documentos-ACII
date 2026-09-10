@@ -6,7 +6,7 @@ import {
   Briefcase, Layers, FileText, Plus, Search, Lock, History, Clock, ArrowUpRight,
   RotateCcw, Power, Check
 } from 'lucide-react';
-import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT } from '../types';
+import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT, DocumentTypeSettings } from '../types';
 import { dbSaveUserAccount, dbDeleteUserAccount } from '../lib/firebaseSync';
 import { getDefaultInitialPassword, hashPassword } from '../lib/userManagement';
 
@@ -31,28 +31,32 @@ interface AdminUsersModalProps {
   onUpdateEmployees: (newEmployees: Employee[]) => void;
   profilePermissions: ProfilePermissions;
   onUpdatePermissions: (newPerms: ProfilePermissions) => void;
+  documentTypeSettings: DocumentTypeSettings;
+  onUpdateDocumentTypeSettings: (newSettings: DocumentTypeSettings) => void;
   pops: POP[];
   atrs: ATR[];
   its: IT[];
   onSelectDoc?: (id: string, type: 'pop' | 'atr' | 'it') => void;
 }
 
-export default function AdminUsersModal({ 
-  isOpen, 
-  onClose, 
-  users, 
-  onUpdateUsers, 
+export default function AdminUsersModal({
+  isOpen,
+  onClose,
+  users,
+  onUpdateUsers,
   currentUser,
   employees,
   onUpdateEmployees,
   profilePermissions,
   onUpdatePermissions,
+  documentTypeSettings,
+  onUpdateDocumentTypeSettings,
   pops,
   atrs,
   its,
   onSelectDoc
 }: AdminUsersModalProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'content_control' | 'logs'>('content_control');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'document_types' | 'content_control' | 'logs'>('content_control');
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   
@@ -580,7 +584,7 @@ export default function AdminUsersModal({
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
           {/* Subtabs inside Modal */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1">
+          <div className="grid grid-cols-2 sm:grid-cols-5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1">
             <button
               onClick={() => setActiveSubTab('content_control')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -613,6 +617,17 @@ export default function AdminUsersModal({
             >
               <Shield className="w-3.5 h-3.5" />
               <span>Perfis Padrão</span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('document_types')}
+              className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeSubTab === 'document_types'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-450 font-black shadow-3xs border border-emerald-500/15'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Tipos de Documento</span>
             </button>
             <button
               onClick={() => setActiveSubTab('logs')}
@@ -1352,6 +1367,61 @@ export default function AdminUsersModal({
                     </label>
                   </div>
                 </div>
+              </div>
+            </div>
+          ) : activeSubTab === 'document_types' ? (
+            <div className="space-y-5">
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 flex items-start gap-3">
+                <FileText className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  <p className="font-bold text-slate-800 dark:text-slate-200 mb-1">Tipos de documento desta empresa</p>
+                  <p>
+                    ATR, POP, Instrução de Trabalho e Guarda de Documentos são os 4 tipos padrão do produto.
+                    Aqui você decide se cada um aparece no menu e com qual nome — os dados já cadastrados
+                    nunca são apagados ao desativar um tipo, ele só some da navegação.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {(['pop', 'atr', 'it', 'digitalizado'] as const).map(key => {
+                  const setting = documentTypeSettings[key];
+                  return (
+                    <div
+                      key={key}
+                      className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60"
+                    >
+                      <label className="flex items-center gap-2.5 shrink-0 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={setting.enabled}
+                          onChange={e => onUpdateDocumentTypeSettings({
+                            ...documentTypeSettings,
+                            [key]: { ...setting, enabled: e.target.checked }
+                          })}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
+                        />
+                        <span className={`text-[10px] font-black uppercase tracking-wider ${setting.enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                          {setting.enabled ? 'Ativo' : 'Desativado'}
+                        </span>
+                      </label>
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">
+                          Nome exibido {key === 'atr' && '(padrão: ATR)'}{key === 'pop' && '(padrão: POP)'}{key === 'it' && '(padrão: Instrução de Trabalho)'}{key === 'digitalizado' && '(padrão: Guarda de Documentos)'}
+                        </label>
+                        <input
+                          type="text"
+                          value={setting.label}
+                          onChange={e => onUpdateDocumentTypeSettings({
+                            ...documentTypeSettings,
+                            [key]: { ...setting, label: e.target.value }
+                          })}
+                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : activeSubTab === 'logs' ? (
