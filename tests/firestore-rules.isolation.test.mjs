@@ -60,16 +60,23 @@ before(async () => {
     await setDoc(doc(db, 'companies', 'beta'), { id: 'beta', name: 'Beta Ltda', status: 'ativo' });
 
     // Vínculos de sessão (auth_links) — uid-admin-acii já "logado" como
-    // admin da ACII, uid-colab-acii como colaborador do setor SEC-ACII-1.
+    // admin da ACII, uid-colab-acii como colaborador do setor SEC-ACII-1,
+    // uid-gestor-acii como gestor do MESMO setor (SEC-ACII-1) — usado
+    // pelos testes de "gestor de setor" da Fase 3.
     await setDoc(doc(db, 'auth_links', 'uid-admin-acii'), { companyId: 'acii', userId: 'admin-acii', role: 'admin', sectorId: null });
     await setDoc(doc(db, 'auth_links', 'uid-colab-acii'), { companyId: 'acii', userId: 'colab-acii', role: 'colaborador', sectorId: 'SEC-ACII-1' });
+    await setDoc(doc(db, 'auth_links', 'uid-gestor-acii'), { companyId: 'acii', userId: 'gestor-acii', role: 'gestor', sectorId: 'SEC-ACII-1' });
     await setDoc(doc(db, 'auth_links', 'uid-admin-beta'), { companyId: 'beta', userId: 'admin-beta', role: 'admin', sectorId: null });
 
     await setDoc(doc(db, 'sectors', 'SEC-ACII-1'), { id: 'SEC-ACII-1', companyId: 'acii', name: 'RH' });
+    await setDoc(doc(db, 'sectors', 'SEC-ACII-2'), { id: 'SEC-ACII-2', companyId: 'acii', name: 'Financeiro' });
     await setDoc(doc(db, 'sectors', 'SEC-BETA-1'), { id: 'SEC-BETA-1', companyId: 'beta', name: 'Financeiro' });
 
     await setDoc(doc(db, 'users', 'admin-acii'), { id: 'admin-acii', companyId: 'acii', username: 'admin', name: 'Admin ACII', role: 'admin', passwordHash: 'x' });
     await setDoc(doc(db, 'users', 'admin-beta'), { id: 'admin-beta', companyId: 'beta', username: 'admin', name: 'Admin Beta', role: 'admin', passwordHash: 'y' });
+    await setDoc(doc(db, 'users', 'colab-acii'), { id: 'colab-acii', companyId: 'acii', username: 'colaborador', name: 'Colaborador ACII', role: 'colaborador', passwordHash: 'z' });
+
+    await setDoc(doc(db, 'atrs', 'atr-sec1'), { id: 'atr-sec1', companyId: 'acii', sectorId: 'SEC-ACII-1', title: 'ATR setor 1' });
 
     await setDoc(doc(db, 'login_index', 'acii__admin'), { companyId: 'acii', userId: 'admin-acii', username: 'admin', passwordHash: 'x', status: 'ativo' });
 
@@ -132,7 +139,7 @@ test('admin da ACII lista usuários da própria empresa', async () => {
   const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
   const q = query(collection(db, 'users'), where('companyId', '==', 'acii'));
   const snap = await assertSucceeds(getDocs(q));
-  assert.equal(snap.size, 1);
+  assert.equal(snap.size, 2); // admin-acii + colab-acii
 });
 
 test('admin da ACII NÃO consegue listar usuários da Beta', async () => {
@@ -222,4 +229,53 @@ test('qualquer sessão autenticada lê a lista de empresas (necessário para a t
 test('ninguém escreve em companies pelo cliente (nem admin) — só script administrativo', async () => {
   const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
   await assertFails(setDoc(doc(db, 'companies', 'gama'), { id: 'gama', name: 'Gama', status: 'ativo' }));
+});
+
+// ── Fase 3: "gestor de setor" (ATR/POP/IT restritos ao próprio setor) ──
+
+test('gestor edita ATR do PRÓPRIO setor', async () => {
+  const db = testEnv.authenticatedContext('uid-gestor-acii').firestore();
+  await assertSucceeds(updateDoc(doc(db, 'atrs', 'atr-sec1'), { title: 'ATR setor 1 (editado)' }));
+});
+
+test('gestor NÃO edita ATR de outro setor da MESMA empresa', async () => {
+  const db = testEnv.authenticatedContext('uid-gestor-acii').firestore();
+  await setDoc(doc(testEnv.authenticatedContext('uid-admin-acii').firestore(), 'atrs', 'atr-sec2'), { id: 'atr-sec2', companyId: 'acii', sectorId: 'SEC-ACII-2', title: 'ATR setor 2' });
+  await assertFails(updateDoc(doc(db, 'atrs', 'atr-sec2'), { title: 'Invasão de setor' }));
+});
+
+test('gestor NÃO cria ATR direto para outro setor', async () => {
+  const db = testEnv.authenticatedContext('uid-gestor-acii').firestore();
+  await assertFails(setDoc(doc(db, 'atrs', 'atr-novo-sec2'), { id: 'atr-novo-sec2', companyId: 'acii', sectorId: 'SEC-ACII-2', title: 'Tentativa' }));
+});
+
+test('gestor NÃO "muda de setor" um ATR do próprio setor via update', async () => {
+  const db = testEnv.authenticatedContext('uid-gestor-acii').firestore();
+  await assertFails(updateDoc(doc(db, 'atrs', 'atr-sec1'), { sectorId: 'SEC-ACII-2' }));
+});
+
+test('admin edita ATR de qualquer setor da própria empresa', async () => {
+  const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
+  await assertSucceeds(updateDoc(doc(db, 'atrs', 'atr-sec1'), { title: 'Editado pelo admin' }));
+});
+
+// ── Fase 3: "admin configura setores" (gestor deixa de escrever) ──────
+
+test('gestor NÃO cria nem edita setor (virou tarefa só do admin)', async () => {
+  const db = testEnv.authenticatedContext('uid-gestor-acii').firestore();
+  await assertFails(setDoc(doc(db, 'sectors', 'SEC-ACII-3'), { id: 'SEC-ACII-3', companyId: 'acii', name: 'Novo Setor' }));
+  await assertFails(updateDoc(doc(db, 'sectors', 'SEC-ACII-1'), { name: 'RH Renomeado' }));
+});
+
+test('admin continua criando e editando setor normalmente', async () => {
+  const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
+  await assertSucceeds(setDoc(doc(db, 'sectors', 'SEC-ACII-3'), { id: 'SEC-ACII-3', companyId: 'acii', name: 'Novo Setor' }));
+});
+
+// ── Blindagem contra autopromoção (achado ao revisar a regra na Fase 3) ─
+
+test('colaborador troca a própria senha (hash), mas NÃO o próprio papel', async () => {
+  const db = testEnv.authenticatedContext('uid-colab-acii').firestore();
+  await assertSucceeds(updateDoc(doc(db, 'users', 'colab-acii'), { passwordHash: 'nova-senha-hash' }));
+  await assertFails(updateDoc(doc(db, 'users', 'colab-acii'), { role: 'admin' }));
 });

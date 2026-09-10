@@ -80,7 +80,12 @@ export interface ATR {
   id: string; // e.g. "Atr-001"
   companyId: string;
   title: string; // e.g. "Gerente Executiva"
-  sector: Sector;
+  sector: Sector; // nome do setor, exibido na tela (histórico, formato livre)
+  // ID do setor (SectorData.id) — usado pelas Firestore Rules pra
+  // restringir gestor de setor (Fase 3) ao próprio setor. Opcional só
+  // por compatibilidade com documentos criados antes desta fase
+  // existir; toda gravação nova a partir de agora sempre preenche.
+  sectorId?: string;
   directLeader: string;
   indirectLeader?: string;
   summary: string;
@@ -111,6 +116,7 @@ export interface POP {
   title: string; // e.g. "Participação em Eventos e Reuniões de Patrocínio"
   process: string; // e.g. "ADMINISTRATIVO"
   sector: Sector;
+  sectorId?: string; // ver comentário equivalente em ATR
   emissionDate: string;
   revision: string;
   revisionDate?: string;
@@ -131,6 +137,7 @@ export interface IT {
   companyId: string;
   title: string;
   sector: Sector;
+  sectorId?: string; // ver comentário equivalente em ATR
   objective: string;
   responsible: string;
   steps: string[];

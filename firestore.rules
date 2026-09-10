@@ -77,6 +77,19 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
+    // Fase 3 — "gestor de setor": admin mexe em tudo da empresa; gestor
+    // só em documentos do PRÓPRIO setor (sectorId precisa bater com o
+    // sectorId da sessão, gravado em auth_links no login — ver
+    // src/lib/authLink.ts). `sectorId` é opcional em ATR/POP/IT (só
+    // passou a existir nesta fase) — um documento antigo sem esse campo
+    // fica temporariamente só editável por admin, até ser migrado
+    // (nunca lido/vazado por engano: é "nega", não "libera", na dúvida).
+    // ─────────────────────────────────────────────────────────────────
+    function canManageSector(sectorId) {
+      return isAdmin() || (isGestor() && currentSectorId() != null && currentSectorId() == sectorId);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
     // companies: cadastro das empresas-cliente (tenants). Leitura aberta
     // a qualquer sessão autenticada (inclui a anônima) porque a tela de
     // login precisa listar as empresas ativas ANTES de saber a qual
@@ -146,41 +159,51 @@ service cloud.firestore {
 
     // ─────────────────────────────────────────────────────────────────
     // Setores, ATRs, POPs, ITs, Funcionários, Documentos digitalizados:
-    // mesmo padrão em todas — só enxerga/mexe quem é da mesma empresa do
-    // documento, e só admin/gestor escreve. `companyId` nunca pode ser
-    // trocado numa atualização (impede "mudar de empresa" um documento
-    // já existente).
+    // leitura sempre pra qualquer papel da mesma empresa; `companyId`
+    // nunca pode ser trocado numa atualização (impede "mudar de empresa"
+    // um documento já existente). Quem pode ESCREVER varia por papel
+    // (Fase 3, "papéis mínimos"):
+    //   - sectors: só admin ("admin da empresa configura setores").
+    //   - atrs/pops/its/guarded_documents: admin em qualquer setor,
+    //     gestor só no PRÓPRIO setor (canManageSector) — "gestor de
+    //     setor gerencia documentos do próprio setor".
+    //   - employees: admin ou gestor, empresa inteira (sem trava de
+    //     setor aqui — fora do escopo desta fase, fica pra revisão
+    //     futura se fizer sentido apertar também).
     // ─────────────────────────────────────────────────────────────────
     match /sectors/{sectorId} {
       allow read: if isAuthenticated() && belongsToCurrentCompany();
-      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
-      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
+      allow create: if isAdmin() && writeBelongsToCurrentCompany();
+      allow update: if isAdmin() && belongsToCurrentCompany() &&
         request.resource.data.companyId == resource.data.companyId;
-      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
+      allow delete: if isAdmin() && belongsToCurrentCompany();
     }
 
     match /pops/{popId} {
       allow read: if isAuthenticated() && belongsToCurrentCompany();
-      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
-      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
-        request.resource.data.companyId == resource.data.companyId;
-      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
+      allow create: if writeBelongsToCurrentCompany() && canManageSector(request.resource.data.sectorId);
+      allow update: if belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId &&
+        canManageSector(request.resource.data.sectorId) && canManageSector(resource.data.sectorId);
+      allow delete: if belongsToCurrentCompany() && canManageSector(resource.data.sectorId);
     }
 
     match /atrs/{atrId} {
       allow read: if isAuthenticated() && belongsToCurrentCompany();
-      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
-      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
-        request.resource.data.companyId == resource.data.companyId;
-      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
+      allow create: if writeBelongsToCurrentCompany() && canManageSector(request.resource.data.sectorId);
+      allow update: if belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId &&
+        canManageSector(request.resource.data.sectorId) && canManageSector(resource.data.sectorId);
+      allow delete: if belongsToCurrentCompany() && canManageSector(resource.data.sectorId);
     }
 
     match /its/{itId} {
       allow read: if isAuthenticated() && belongsToCurrentCompany();
-      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
-      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
-        request.resource.data.companyId == resource.data.companyId;
-      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
+      allow create: if writeBelongsToCurrentCompany() && canManageSector(request.resource.data.sectorId);
+      allow update: if belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId &&
+        canManageSector(request.resource.data.sectorId) && canManageSector(resource.data.sectorId);
+      allow delete: if belongsToCurrentCompany() && canManageSector(resource.data.sectorId);
     }
 
     match /employees/{employeeId} {
@@ -198,19 +221,29 @@ service cloud.firestore {
     // `login_index`, antes de o auth_link existir. `list` (consulta que
     // devolve vários documentos de uma vez) exige empresa batendo —
     // impede alguém já logado numa empresa de listar usuários de outra.
-    // Escrita: admin/gestor da empresa, ou o próprio dono da sessão
-    // (troca de senha, primeiro acesso).
+    //
+    // Escrita: admin OU gestor da empresa (gestor precisa continuar
+    // criando a conta de acesso de um funcionário novo do próprio setor
+    // — ver EmployeeManager.tsx — mesmo que a TELA dedicada de gestão de
+    // usuários, na Fase 3, tenha ficado só pro admin — ver App.tsx,
+    // botão "Senhas"). Qualquer usuário também pode mexer na PRÓPRIA
+    // conta (troca de senha no primeiro acesso, por exemplo).
     // ─────────────────────────────────────────────────────────────────
     match /users/{userId} {
       allow get: if isAuthenticated();
       allow list: if isAuthenticated() && belongsToCurrentCompany();
       allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      // O próprio dono da sessão pode atualizar a PRÓPRIA conta (troca de
+      // senha, primeiro acesso), mas NUNCA o próprio `role` — sem essa
+      // trava, qualquer colaborador logado poderia se autopromover a
+      // admin com uma única escrita direta ao Firestore (bypassando a
+      // tela). Achado ao revisar esta regra na Fase 3, corrigido aqui.
       allow update: if isAuthenticated() &&
+        request.resource.data.companyId == resource.data.companyId &&
         (
           ((isAdmin() || isGestor()) && belongsToCurrentCompany()) ||
-          currentUserId() == userId
-        ) &&
-        request.resource.data.companyId == resource.data.companyId;
+          (currentUserId() == userId && request.resource.data.role == resource.data.role)
+        );
       allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
     }
 
@@ -256,14 +289,17 @@ service cloud.firestore {
             && currentSectorId() in resource.data.extraViewerSectorIds)
       );
 
-      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      // Criação também trava no próprio setor do gestor (Fase 3) — antes
+      // só update/delete tinham essa trava; a criação ficava mais aberta
+      // que o próprio Storage (que já barrava o arquivo em si — ver
+      // storage.rules), uma inconsistência que não fazia sentido manter.
+      allow create: if writeBelongsToCurrentCompany() && canManageSector(request.resource.data.sectorId);
 
       allow update: if belongsToCurrentCompany() &&
         request.resource.data.companyId == resource.data.companyId &&
-        (isAdmin() || (isGestor() && currentSectorId() == resource.data.sectorId));
+        canManageSector(request.resource.data.sectorId) && canManageSector(resource.data.sectorId);
 
-      allow delete: if belongsToCurrentCompany() &&
-        (isAdmin() || (isGestor() && currentSectorId() == resource.data.sectorId));
+      allow delete: if belongsToCurrentCompany() && canManageSector(resource.data.sectorId);
     }
   }
 }

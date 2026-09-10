@@ -1,4 +1,4 @@
-import { useState, FormEvent, useMemo } from 'react';
+import { useState, useEffect, FormEvent, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key, 
@@ -57,6 +57,23 @@ export default function AdminUsersModal({
   onSelectDoc
 }: AdminUsersModalProps) {
   const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'document_types' | 'content_control' | 'logs'>('content_control');
+
+  // Fase 3: "admin da empresa cuida de usuários, perfis e tipos de
+  // documento" — gestor continua abrindo este modal (Quadro de Acessos
+  // e Logs do Sistema não têm nada a ver com gestão de usuários), mas
+  // essas 3 abas ficam só pro admin.
+  const isAdminRole = currentUser.role === 'admin';
+
+  // Segurança extra: se por qualquer motivo (ex: logout de um admin e
+  // login de um gestor na mesma aba, sem recarregar a página) a aba
+  // ativa ficar numa das 3 restritas a admin, volta pro Quadro de
+  // Acessos — o botão já fica escondido, isto é só um cinto de
+  // segurança a mais.
+  useEffect(() => {
+    if (!isAdminRole && (activeSubTab === 'users' || activeSubTab === 'profiles' || activeSubTab === 'document_types')) {
+      setActiveSubTab('content_control');
+    }
+  }, [isAdminRole, activeSubTab]);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   
@@ -584,7 +601,7 @@ export default function AdminUsersModal({
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
           {/* Subtabs inside Modal */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1">
+          <div className={`grid grid-cols-2 ${isAdminRole ? 'sm:grid-cols-5' : 'sm:grid-cols-2'} bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1`}>
             <button
               onClick={() => setActiveSubTab('content_control')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -596,6 +613,7 @@ export default function AdminUsersModal({
               <Sliders className="w-3.5 h-3.5" />
               <span>Quadro de Acessos</span>
             </button>
+            {isAdminRole && (
             <button
               onClick={() => setActiveSubTab('users')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -607,6 +625,8 @@ export default function AdminUsersModal({
               <Users className="w-3.5 h-3.5" />
               <span>Credenciais</span>
             </button>
+            )}
+            {isAdminRole && (
             <button
               onClick={() => setActiveSubTab('profiles')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -618,6 +638,8 @@ export default function AdminUsersModal({
               <Shield className="w-3.5 h-3.5" />
               <span>Perfis Padrão</span>
             </button>
+            )}
+            {isAdminRole && (
             <button
               onClick={() => setActiveSubTab('document_types')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -629,6 +651,7 @@ export default function AdminUsersModal({
               <FileText className="w-3.5 h-3.5" />
               <span>Tipos de Documento</span>
             </button>
+            )}
             <button
               onClick={() => setActiveSubTab('logs')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${

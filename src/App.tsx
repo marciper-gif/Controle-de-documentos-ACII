@@ -1519,6 +1519,7 @@ export default function App() {
         companyId: currentUser?.companyId || '',
         title: formTitle,
         sector: formSector,
+        sectorId: sectors.find(s => s.name === formSector)?.id,
         directLeader: formDirectLeader,
         indirectLeader: formIndirectLeader || undefined,
         summary: formSummary,
@@ -1589,6 +1590,7 @@ export default function App() {
         companyId: currentUser?.companyId || '',
         title: formTitle,
         sector: formSector,
+        sectorId: sectors.find(s => s.name === formSector)?.id,
         objective: formObjective,
         responsible: formResponsiblePrimary,
         steps: formSteps.split('\n').map(s => s.trim()).filter(Boolean),
@@ -1665,6 +1667,7 @@ export default function App() {
         title: formTitle,
         process: formProcess || 'ADMINISTRATIVO',
         sector: formSector,
+        sectorId: sectors.find(s => s.name === formSector)?.id,
         emissionDate: formEmissionDate,
         revision: nextRev,
         revisionDate: editingId ? (isContentChanged && !keepRevisionOnEdit ? todayStr : originalPOP?.revisionDate) : undefined,
@@ -1749,7 +1752,7 @@ export default function App() {
     setFormEditingId(null);
     setFormId('');
     setFormTitle('');
-    setFormSector('Administrativo');
+    setFormSector(sectors[0]?.name || '');
     setFormSectorProcess('');
     setFormDirectLeader('');
     setFormIndirectLeader('');
@@ -1778,6 +1781,15 @@ export default function App() {
   const handleOpenCreateModal = (type: 'pop' | 'atr' | 'it') => {
     resetForm();
     setFormDocType(type);
+    // Fase 3: gestor de setor só cria/edita documento do próprio setor —
+    // trava o formulário já no valor certo, pra não deixar preencher tudo
+    // e só descobrir no final (regra do Firestore) que o setor escolhido
+    // não é o dele. Ver também o <select> de setor mais abaixo, desabilitado
+    // pro mesmo papel.
+    const isGestorRole = currentUser?.role === 'gestor' || currentUser?.role === 'lider';
+    if (isGestorRole && currentUserEmployee?.sector) {
+      setFormSector(currentUserEmployee.sector);
+    }
     // Auto generate logical next ID
     if (type === 'atr') {
       const nextIdNum = Math.max(...atrs.map(a => parseInt(a.id.split('-')[1]) || 0), 0) + 1;
@@ -2094,6 +2106,13 @@ export default function App() {
                 )}
               </button>
 
+              {/* Continua aberto pra admin E gestor — dentro do modal,
+                  as abas "Credenciais", "Perfis Padrão" e "Tipos de
+                  Documento" (que são as que a Fase 3 restringiu a
+                  admin) já ficam escondidas pro gestor; "Quadro de
+                  Acessos" (vincular documentos a funcionários) e "Logs
+                  do Sistema" continuam abertas pra ele, sem relação com
+                  gestão de usuários. */}
               {(currentUser.role === 'admin' || currentUser.role === 'gestor' || currentUser.role === 'lider') && (
                 <button
                   onClick={() => setIsAdminModalOpen(true)}
@@ -2293,6 +2312,9 @@ export default function App() {
             employees={employees}
             pops={pops}
             atrs={atrs}
+            // Fase 3: configurar setores é tarefa do admin da empresa —
+            // gestor/colaborador só consultam (ver firestore.rules).
+            canEditSectors={currentUser?.role === 'admin'}
           />
         ) : currentView === 'documentos' ? (
           <DocumentsView
@@ -3824,9 +3846,17 @@ export default function App() {
                     <select
                       value={formSector}
                       onChange={e => setFormSector(e.target.value as Sector)}
-                      className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-850 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
+                      // Gestor de setor só mexe no próprio setor (Fase 3) —
+                      // trava o campo pra ele nem tentar escolher outro.
+                      disabled={currentUser?.role === 'gestor' || currentUser?.role === 'lider'}
+                      className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-850 dark:text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      {sectors.map(sec => (
+                      {sectors
+                        .filter(sec =>
+                          !(currentUser?.role === 'gestor' || currentUser?.role === 'lider') ||
+                          sec.name === currentUserEmployee?.sector
+                        )
+                        .map(sec => (
                         <option key={sec.id} value={sec.name}>
                           {sec.name === 'Juridico' ? 'Jurídico' : sec.name}
                         </option>
