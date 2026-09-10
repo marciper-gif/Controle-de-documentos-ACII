@@ -1,7 +1,28 @@
 export type Sector = string;
 
+// ─────────────────────────────────────────────────────────────────────
+// Multiempresa (SaaS)
+// ─────────────────────────────────────────────────────────────────────
+// Todo documento de dado "de negócio" (setor, ATR, POP, IT, funcionário,
+// usuário, documento digitalizado) carrega um companyId — o "crachá" que
+// diz a qual empresa ele pertence. As Firestore Rules recusam qualquer
+// leitura/escrita onde esse campo não bata com a empresa da sessão atual
+// (ver firestore.rules, função currentCompanyId()). Nenhum desses campos
+// deve ser opcional a partir desta fase — documento sem companyId é
+// documento que as regras não conseguem proteger.
+
+export interface Company {
+  id: string;          // slug curto, ex: "acii" — também usado no login
+  name: string;         // nome de exibição, ex: "ACII"
+  status: 'ativo' | 'inativo';
+  logoUrl?: string;
+  primaryColor?: string; // cor de marca da empresa (Fase 4)
+  createdAt?: string;
+}
+
 export interface SectorData {
   id: string;
+  companyId: string;
   name: string;
   description?: string;
   color?: string;
@@ -9,6 +30,7 @@ export interface SectorData {
 
 export interface Employee {
   id: string;
+  companyId: string;
   name: string;
   email: string;
   phone: string;
@@ -33,6 +55,7 @@ export interface RevisionHistoryEntry {
 
 export interface ATR {
   id: string; // e.g. "Atr-001"
+  companyId: string;
   title: string; // e.g. "Gerente Executiva"
   sector: Sector;
   directLeader: string;
@@ -61,6 +84,7 @@ export interface POPStep {
 
 export interface POP {
   id: string; // e.g. "POP-001"
+  companyId: string;
   title: string; // e.g. "Participação em Eventos e Reuniões de Patrocínio"
   process: string; // e.g. "ADMINISTRATIVO"
   sector: Sector;
@@ -81,6 +105,7 @@ export interface POP {
 
 export interface IT {
   id: string; // e.g. "IT-001"
+  companyId: string;
   title: string;
   sector: Sector;
   objective: string;
@@ -94,8 +119,10 @@ export interface IT {
 
 export interface UserAccount {
   id: string;
+  companyId: string;
   username: string;
   name: string;
+  /** @deprecated Não gravar mais em texto puro — mantido só de leitura para contas antigas ainda não migradas. Ver Fase 6. */
   password?: string;
   passwordHash?: string;
   role: 'admin' | 'gestor' | 'colaborador' | 'lider';
@@ -150,6 +177,7 @@ export interface DocumentVersion {
 
 export interface GuardedDocument {
   id: string;
+  companyId: string;
   title: string;
   titleLower?: string;     // title em minúsculas, sem acento simples — usado só para busca
                             // por prefixo no Firestore (where >= / <), que é case-sensitive.

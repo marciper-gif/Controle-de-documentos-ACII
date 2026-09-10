@@ -52,8 +52,10 @@ export default function ExpiringDocumentsPanel({
   // enxerga vencimentos de todos os setores; quem não é admin só do
   // próprio setor (mesma regra de visibilidade de antes, agora aplicada
   // na consulta em vez de no cliente).
+  const companyId = currentUser?.companyId || '';
+
   useEffect(() => {
-    if (!canManage) {
+    if (!canManage || !companyId) {
       setDocs([]);
       setLoading(false);
       return;
@@ -68,6 +70,7 @@ export default function ExpiringDocumentsPanel({
       return;
     }
     const unsubscribe = subscribeToExpiringDocuments(
+      companyId,
       { sectorId: sectorScope },
       list => {
         setDocs(list);
@@ -79,7 +82,7 @@ export default function ExpiringDocumentsPanel({
       }
     );
     return () => unsubscribe();
-  }, [canManage, isAdmin, mySectorId]);
+  }, [canManage, isAdmin, mySectorId, companyId]);
 
   const uploaderName = currentUser?.name || currentUser?.username || 'Usuário';
 

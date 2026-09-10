@@ -1,6 +1,10 @@
 import { ATR } from '../types';
 
-export const initialATRs: ATR[] = [
+// Sem companyId: este é o acervo-fonte da ACII, usado só pelo script de
+// migração (Fase 6) e por handleRestoreDefaults (App.tsx), que carimbam
+// o companyId do tenant de destino na hora de gravar — nunca lido
+// diretamente pelo app como "dado ao vivo" de nenhuma empresa.
+export const initialATRs: Omit<ATR, 'companyId'>[] = [
   {
     id: 'Atr-001',
     title: 'Gerente Executiva',

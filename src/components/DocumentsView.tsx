@@ -79,10 +79,13 @@ export default function DocumentsView({
   // com contagem 0, em vez de estourar erro na tela.
   const [sectorCounts, setSectorCounts] = useState<Record<string, number>>({});
 
+  const companyId = currentUser?.companyId || '';
+
   useEffect(() => {
+    if (!companyId) return;
     let cancelled = false;
     sectors.forEach(sector => {
-      getSectorDocumentCount(sector.id)
+      getSectorDocumentCount(companyId, sector.id)
         .then(count => {
           if (!cancelled) setSectorCounts(prev => ({ ...prev, [sector.id]: count }));
         })
@@ -93,7 +96,7 @@ export default function DocumentsView({
     return () => {
       cancelled = true;
     };
-  }, [sectors]);
+  }, [sectors, companyId]);
 
   // ── Pasta aberta: lista paginada, em tempo real ────────────────────
   const [openDocs, setOpenDocs] = useState<GuardedDocument[]>([]);
@@ -105,12 +108,13 @@ export default function DocumentsView({
   }, [selectedSectorId]);
 
   useEffect(() => {
-    if (!selectedSectorId) {
+    if (!selectedSectorId || !companyId) {
       setOpenDocs([]);
       return;
     }
     setOpenLoading(true);
     const unsubscribe = subscribeToSectorDocuments(
+      companyId,
       selectedSectorId,
       openPageLimit,
       docs => {
@@ -123,7 +127,7 @@ export default function DocumentsView({
       }
     );
     return () => unsubscribe();
-  }, [selectedSectorId, openPageLimit]);
+  }, [selectedSectorId, openPageLimit, companyId]);
 
   // Só mostra "Carregar mais" se a última página veio cheia — sinal de
   // que provavelmente existe mais além do limite atual.
@@ -143,7 +147,7 @@ export default function DocumentsView({
   const [searchLoading, setSearchLoading] = useState(false);
 
   useEffect(() => {
-    if (!normalizedQuery) {
+    if (!normalizedQuery || !companyId) {
       setSearchResults(null);
       setSearchLoading(false);
       return;
@@ -165,6 +169,7 @@ export default function DocumentsView({
     };
     const unsubscribes = sectors.map(sector =>
       subscribeToSectorDocumentsByTitlePrefix(
+        companyId,
         sector.id,
         normalizedQuery,
         SEARCH_RESULTS_PER_SECTOR,
@@ -182,7 +187,7 @@ export default function DocumentsView({
       )
     );
     return () => unsubscribes.forEach(unsub => unsub());
-  }, [normalizedQuery, sectors]);
+  }, [normalizedQuery, sectors, companyId]);
 
   // Reenvio de nova versão (item 4.5 da especificação)
   const versionInputRef = useRef<HTMLInputElement>(null);
@@ -227,6 +232,7 @@ export default function DocumentsView({
       const newVersionNumber = doc.version + 1;
       const { fileUrl, storagePath } = await uploadGuardedDocumentFile(
         file,
+        doc.companyId,
         doc.sectorId,
         doc.id,
         newVersionNumber,

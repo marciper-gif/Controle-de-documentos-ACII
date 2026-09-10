@@ -46,6 +46,7 @@ import {
 
 import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry } from './types';
 import { exportElementToPdf } from './utils/pdfExport';
+import { getDefaultInitialPassword, hashPassword } from './lib/userManagement';
 import { initialATRs } from './data/atrs';
 import { initialPOPs } from './data/pops';
 import { initialITs } from './data/its';
@@ -61,11 +62,10 @@ import DocumentsView from './components/DocumentsView';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { onSnapshot, collection, doc } from 'firebase/firestore';
+import { onSnapshot, collection, doc, query, where } from 'firebase/firestore';
 import { auth, db, ensureAnonymousAuth } from './lib/firebase';
 import { linkFirebaseAuthToAppUser } from './lib/authLink';
 import {
-  seedDatabaseIfEmpty,
   dbSaveSector,
   dbDeleteSector,
   dbSaveEmployee,
@@ -269,19 +269,33 @@ export default function App() {
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [pdfExportProgress, setPdfExportProgress] = useState<string>('');
 
-  // User Management State
-  const [users, rawSetUsers] = useState<UserAccount[]>(() => {
-    const saved = localStorage.getItem('ms-users');
-    if (!saved) {
-      const defaultUsers: UserAccount[] = [
-        { id: '1', username: 'admin', name: 'Administrador Geral', password: 'admin', role: 'admin', status: 'Ativo', primeiro_acesso: false },
-        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: '123', role: 'colaborador', status: 'Ativo', primeiro_acesso: true }
-      ];
-      localStorage.setItem('ms-users', JSON.stringify(defaultUsers));
-      return defaultUsers;
-    }
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    const saved = localStorage.getItem('ms-current-user');
+    if (!saved) return null;
     try {
       return JSON.parse(saved);
+    } catch (e) {
+      return null;
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Multiempresa: o cache local (localStorage) agora é namespaced por
+  // companyId — sem isso, um navegador compartilhado por logins de
+  // empresas diferentes mostraria por um instante (antes do Firestore
+  // corrigir) o cache da ÚLTIMA empresa que usou aquele navegador. As
+  // chaves ANTIGAS (ms-atrs, ms-pops, etc., sem sufixo) não são mais
+  // lidas — ver Fase 6 para a migração dos dados reais da ACII.
+  // ─────────────────────────────────────────────────────────────────
+  const cacheKey = (base: string) => `${base}-${currentUser?.companyId || 'sem-empresa'}`;
+
+  // User Management State
+  const [users, rawSetUsers] = useState<UserAccount[]>(() => {
+    const saved = localStorage.getItem(cacheKey('ms-users'));
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       return [];
     }
@@ -300,16 +314,6 @@ export default function App() {
     });
   }, []);
 
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
-    const saved = localStorage.getItem('ms-current-user');
-    if (!saved) return null;
-    try {
-      return JSON.parse(saved);
-    } catch (e) {
-      return null;
-    }
-  });
-
   // Fica `true` assim que existir QUALQUER sessão do Firebase Auth (anônima
   // ponte para login por CPF/senha, ou Google). As leituras/escritas no
   // Firestore só começam depois disso, porque as regras agora exigem
@@ -319,7 +323,7 @@ export default function App() {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
   const [profilePermissions, rawSetProfilePermissions] = useState<ProfilePermissions>(() => {
-    const saved = localStorage.getItem('ms-profile-permissions');
+    const saved = localStorage.getItem(cacheKey('ms-profile-permissions'));
     const defaultPermissions: ProfilePermissions = {
       colaborador: {
         canSeeAllDocs: true,
@@ -353,7 +357,7 @@ export default function App() {
       }
     };
     if (!saved) {
-      localStorage.setItem('ms-profile-permissions', JSON.stringify(defaultPermissions));
+      localStorage.setItem(cacheKey('ms-profile-permissions'), JSON.stringify(defaultPermissions));
       return defaultPermissions;
     }
     try {
@@ -376,14 +380,14 @@ export default function App() {
   const setProfilePermissions = useCallback((val: React.SetStateAction<ProfilePermissions>) => {
     rawSetProfilePermissions((prev) => {
       const computed = typeof val === 'function' ? val(prev) : val;
-      dbSavePermissions(computed);
+      if (currentUser?.companyId) dbSavePermissions(currentUser.companyId, computed);
       return computed;
     });
-  }, []);
+  }, [currentUser?.companyId]);
 
   const handleUpdatePermissions = (newPerms: ProfilePermissions) => {
     setProfilePermissions(newPerms);
-    localStorage.setItem('ms-profile-permissions', JSON.stringify(newPerms));
+    localStorage.setItem(cacheKey('ms-profile-permissions'), JSON.stringify(newPerms));
   };
 
 
@@ -444,7 +448,7 @@ export default function App() {
 
   const handleUpdateUsers = (newUsers: UserAccount[]) => {
     setUsers(newUsers);
-    localStorage.setItem('ms-users', JSON.stringify(newUsers));
+    localStorage.setItem(cacheKey('ms-users'), JSON.stringify(newUsers));
   };
 
   const handleLogin = (user: UserAccount) => {
@@ -481,30 +485,21 @@ export default function App() {
     localStorage.setItem('ms-theme', theme);
   }, [theme]);
 
+  // O catálogo padrão (initialATRs/initialPOPs/initialITs/initialSectors,
+  // hoje o acervo da ACII) NÃO é mais injetado aqui: fazer isso pra TODA
+  // empresa vazaria o conteúdo da ACII pra dentro da tela de qualquer
+  // cliente novo. Esse catálogo passa a ser usado só pelo script de
+  // migração (Fase 6), que grava explicitamente sob companyId "acii".
+
   // Documents Management (Predefined + Local Drafts)
   const [atrs, rawSetATRs] = useState<ATR[]>(() => {
-    const saved = localStorage.getItem('ms-atrs');
-    const initialAtrsWithComercial = initialATRs.map(atr => {
-      if (atr.id === 'Atr-014' || atr.id === 'Atr-016' || atr.id === 'Atr-018') {
-        return { ...atr, sector: 'Comercial' };
-      }
-      return atr;
-    });
-
-    if (!saved) return initialAtrsWithComercial;
+    const saved = localStorage.getItem(cacheKey('ms-atrs'));
+    if (!saved) return [];
     try {
-      const parsed = JSON.parse(saved) as ATR[];
-      const migrated = parsed.map(atr => {
-        if (atr.id === 'Atr-014' || atr.id === 'Atr-016' || atr.id === 'Atr-018') {
-          return { ...atr, sector: 'Comercial' };
-        }
-        return atr;
-      });
-      const initialIds = new Set(initialAtrsWithComercial.map(x => x.id));
-      const customAtrs = migrated.filter((x: any) => !initialIds.has(x.id));
-      return [...initialAtrsWithComercial, ...customAtrs];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      return initialAtrsWithComercial;
+      return [];
     }
   });
 
@@ -522,19 +517,13 @@ export default function App() {
   }, []);
 
   const [pops, rawSetPOPs] = useState<POP[]>(() => {
-    const saved = localStorage.getItem('ms-pops');
-    if (!saved) return initialPOPs;
+    const saved = localStorage.getItem(cacheKey('ms-pops'));
+    if (!saved) return [];
     try {
       const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed) || parsed.length === 0) return initialPOPs;
-      const initialMap = new Map<string, POP>();
-      initialPOPs.forEach(p => initialMap.set(p.id, p));
-      parsed.forEach((p: POP) => {
-        if (p && p.id) initialMap.set(p.id, p);
-      });
-      return Array.from(initialMap.values());
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      return initialPOPs;
+      return [];
     }
   });
 
@@ -552,19 +541,13 @@ export default function App() {
   }, []);
 
   const [its, rawSetITs] = useState<IT[]>(() => {
-    const saved = localStorage.getItem('ms-its');
-    if (!saved) return initialITs;
+    const saved = localStorage.getItem(cacheKey('ms-its'));
+    if (!saved) return [];
     try {
       const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed) || parsed.length === 0) return initialITs;
-      const initialMap = new Map<string, IT>();
-      initialITs.forEach(i => initialMap.set(i.id, i));
-      parsed.forEach((i: IT) => {
-        if (i && i.id) initialMap.set(i.id, i);
-      });
-      return Array.from(initialMap.values());
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      return initialITs;
+      return [];
     }
   });
 
@@ -583,40 +566,26 @@ export default function App() {
 
   // Save changes to LocalStorage
   useEffect(() => {
-    localStorage.setItem('ms-atrs', JSON.stringify(atrs));
+    localStorage.setItem(cacheKey('ms-atrs'), JSON.stringify(atrs));
   }, [atrs]);
 
   useEffect(() => {
-    localStorage.setItem('ms-pops', JSON.stringify(pops));
+    localStorage.setItem(cacheKey('ms-pops'), JSON.stringify(pops));
   }, [pops]);
 
   useEffect(() => {
-    localStorage.setItem('ms-its', JSON.stringify(its));
+    localStorage.setItem(cacheKey('ms-its'), JSON.stringify(its));
   }, [its]);
 
   // Dynamic sectors state
   const [sectors, rawSetSectors] = useState<SectorData[]>(() => {
-    const saved = localStorage.getItem('ms-sectors');
-    if (!saved) return initialSectors;
+    const saved = localStorage.getItem(cacheKey('ms-sectors'));
+    if (!saved) return [];
     try {
-      const parsed: SectorData[] = JSON.parse(saved);
-      const map = new Map<string, SectorData>();
-      initialSectors.forEach(s => map.set(s.id, s));
-      parsed.forEach(s => {
-        const matchingInit = initialSectors.find(i => i.id === s.id || i.name.toLowerCase() === s.name.toLowerCase());
-        if (matchingInit) {
-          map.set(matchingInit.id, {
-            ...s,
-            id: matchingInit.id,
-            description: s.description && s.description.length > matchingInit.description.length ? s.description : matchingInit.description
-          });
-        } else {
-          map.set(s.id, s);
-        }
-      });
-      return Array.from(map.values());
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      return initialSectors;
+      return [];
     }
   });
 
@@ -635,7 +604,7 @@ export default function App() {
 
   // Dynamic employees state - only preserving employees created in the system
   const [employees, rawSetEmployees] = useState<Employee[]>(() => {
-    const saved = localStorage.getItem('ms-employees');
+    const saved = localStorage.getItem(cacheKey('ms-employees'));
     if (!saved) return [];
     try {
       const parsed = JSON.parse(saved);
@@ -662,11 +631,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('ms-employees', JSON.stringify(employees));
+    localStorage.setItem(cacheKey('ms-employees'), JSON.stringify(employees));
   }, [employees]);
 
   useEffect(() => {
-    localStorage.setItem('ms-sectors', JSON.stringify(sectors));
+    localStorage.setItem(cacheKey('ms-sectors'), JSON.stringify(sectors));
   }, [sectors]);
 
   // Documentos guardados (módulo de guarda de documentos): NÃO existe
@@ -740,6 +709,25 @@ export default function App() {
 
         // Check if employee with this email exists
         let matchedEmployee = employees.find(emp => emp.email.toLowerCase() === userEmail.toLowerCase());
+
+        // A empresa vem do funcionário já cadastrado (fonte confiável) ou,
+        // se ainda não existe funcionário com este e-mail, da empresa
+        // selecionada na tela de login antes de abrir o popup do Google
+        // (ver LoginView.tsx, handleGoogleLogin). Sem nenhuma das duas,
+        // não dá pra saber a empresa desta sessão com segurança — nesse
+        // caso a sessão é encerrada em vez de criar um usuário "sem
+        // empresa" (que as regras de qualquer forma rejeitariam sempre,
+        // mas é mais claro já barrar aqui).
+        const pendingCompanyId = matchedEmployee?.companyId || sessionStorage.getItem('ms-pending-login-company-id') || '';
+        sessionStorage.removeItem('ms-pending-login-company-id');
+
+        if (!pendingCompanyId) {
+          console.error('Login com Google sem empresa selecionada — encerrando sessão.');
+          await auth.signOut();
+          setAuthReady(true);
+          return;
+        }
+
         let userRole: 'admin' | 'gestor' | 'colaborador' | 'lider' = isRuntimeAdmin ? 'admin' : 'colaborador';
         let employeeId = matchedEmployee?.id;
 
@@ -761,11 +749,12 @@ export default function App() {
 
         const firebaseUserAccount: UserAccount = {
           id: firebaseUser.uid,
+          companyId: pendingCompanyId,
           username: userEmail.split('@')[0],
           name: firebaseUser.displayName || 'Usuário Google',
           role: userRole,
-          employeeId: employeeId,
-          password: '' // no password needed for Google SSO
+          employeeId: employeeId
+          // Sem password/passwordHash — login por Google não usa senha do app.
         };
 
         // Add to users list and update state
@@ -795,8 +784,15 @@ export default function App() {
         // para as Firestore Rules (mesmo mecanismo do login por CPF/senha).
         linkFirebaseAuthToAppUser(firebaseUser.uid, firebaseUserAccount, employees, sectors);
 
-        // Seed DB if empty
-        await seedDatabaseIfEmpty();
+        // seedDatabaseIfEmpty() (populava a base com o catálogo padrão da
+        // ACII na primeira execução) não roda mais automaticamente aqui:
+        // ela grava sem companyId, então as novas regras rejeitariam a
+        // escrita mesmo — e, de qualquer forma, "primeira empresa a usar
+        // o sistema ganha o catálogo da ACII de graça" deixou de fazer
+        // sentido num produto multiempresa. O cadastro de uma empresa
+        // nova (Fase 3) é quem passa a cuidar de dar a ela um ponto de
+        // partida (setores/tipos de documento padrão, sem ser
+        // necessariamente o conteúdo da ACII).
       } else {
         // Nenhuma sessão do Firebase Auth ainda: cria uma anônima para que
         // o login por CPF/senha (que não usa Firebase Auth) consiga ler/
@@ -821,32 +817,34 @@ export default function App() {
   }, [employees, sectors]);
 
   // Synchronize collections with Firestore for real-time multi-device persistence
+  //
+  // MULTIEMPRESA: cada listener agora filtra por companyId (where) — sem
+  // isso, o Firestore recusa a consulta inteira (ver a explicação sobre
+  // isso na conversa da Fase 1: "regra própria do Firestore pra list").
+  // Por isso o efeito só arma os listeners depois que existe um
+  // currentUser JÁ vinculado a uma empresa — antes disso (tela de login)
+  // não há nada de tenant-específico pra assinar.
   useEffect(() => {
-    // Espera existir sessão do Firebase Auth (mesmo anônima) antes de abrir
-    // qualquer listener — as Firestore Rules agora exigem request.auth.
-    if (!db || !authReady) return;
+    // Espera existir sessão do Firebase Auth (mesmo anônima) E uma
+    // empresa resolvida (login concluído) antes de abrir qualquer
+    // listener — as Firestore Rules agora exigem os dois.
+    const companyId = currentUser?.companyId;
+    if (!db || !authReady || !companyId) return;
 
-    // Seed database if empty on load
-    seedDatabaseIfEmpty();
+    const byCompany = (col: string) => query(collection(db, col), where('companyId', '==', companyId));
 
     // Real-time Sector subscription
-    const unsubSectors = onSnapshot(collection(db, 'sectors'), (snapshot) => {
+    const unsubSectors = onSnapshot(byCompany('sectors'), (snapshot) => {
       const list: SectorData[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as SectorData);
-      });
-      const map = new Map<string, SectorData>();
-      initialSectors.forEach(s => map.set(s.id, s));
-      list.forEach(s => { if (s && s.id) map.set(s.id, s); });
-      const merged = Array.from(map.values());
-      rawSetSectors(merged);
-      localStorage.setItem('ms-sectors', JSON.stringify(merged));
+      snapshot.forEach((doc) => list.push(doc.data() as SectorData));
+      rawSetSectors(list);
+      localStorage.setItem(cacheKey('ms-sectors'), JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (sectors):", err);
     });
 
    // Real-time Employee subscription
-    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+    const unsubEmployees = onSnapshot(byCompany('employees'), (snapshot) => {
       rawSetEmployees((prev) => {
         const map = new Map<string, Employee>();
         prev.forEach((e) => { if (e && e.id) map.set(e.id, e); });
@@ -859,7 +857,7 @@ export default function App() {
           }
         });
         const merged = Array.from(map.values());
-        localStorage.setItem('ms-employees', JSON.stringify(merged));
+        localStorage.setItem(cacheKey('ms-employees'), JSON.stringify(merged));
         return merged;
       });
     }, (err) => {
@@ -867,88 +865,53 @@ export default function App() {
     });
 
     // Real-time ATRs subscription
-    const unsubATRs = onSnapshot(collection(db, 'atrs'), (snapshot) => {
+    const unsubATRs = onSnapshot(byCompany('atrs'), (snapshot) => {
       const list: ATR[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as ATR);
-      });
-      const map = new Map<string, ATR>();
-      initialATRs.forEach(a => map.set(a.id, a));
-      list.forEach(a => { if (a && a.id) map.set(a.id, a); });
-      const merged = Array.from(map.values());
-      rawSetATRs(merged);
-      localStorage.setItem('ms-atrs', JSON.stringify(merged));
+      snapshot.forEach((doc) => list.push(doc.data() as ATR));
+      rawSetATRs(list);
+      localStorage.setItem(cacheKey('ms-atrs'), JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (atrs):", err);
     });
 
     // Real-time POPs subscription
-    const unsubPOPs = onSnapshot(collection(db, 'pops'), (snapshot) => {
+    const unsubPOPs = onSnapshot(byCompany('pops'), (snapshot) => {
       const list: POP[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as POP);
-      });
-      const map = new Map<string, POP>();
-      initialPOPs.forEach(p => map.set(p.id, p));
-      list.forEach(p => { if (p && p.id) map.set(p.id, p); });
-      const merged = Array.from(map.values());
-      rawSetPOPs(merged);
-      localStorage.setItem('ms-pops', JSON.stringify(merged));
+      snapshot.forEach((doc) => list.push(doc.data() as POP));
+      rawSetPOPs(list);
+      localStorage.setItem(cacheKey('ms-pops'), JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (pops):", err);
     });
 
     // Real-time ITs subscription
-    const unsubITs = onSnapshot(collection(db, 'its'), (snapshot) => {
+    const unsubITs = onSnapshot(byCompany('its'), (snapshot) => {
       const list: IT[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as IT);
-      });
-      const map = new Map<string, IT>();
-      initialITs.forEach(i => map.set(i.id, i));
-      list.forEach(i => { if (i && i.id) map.set(i.id, i); });
-      const merged = Array.from(map.values());
-      rawSetITs(merged);
-      localStorage.setItem('ms-its', JSON.stringify(merged));
+      snapshot.forEach((doc) => list.push(doc.data() as IT));
+      rawSetITs(list);
+      localStorage.setItem(cacheKey('ms-its'), JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (its):", err);
     });
 
     // guarded_documents NÃO tem mais um listener global aqui — ver
     // comentário na declaração do estado (removida), mais acima.
-    // DocumentsView.tsx assina só o setor/página que está aberta.
+    // DocumentsView.tsx assina só o setor/página que está aberta (e já
+    // filtra por companyId — ver src/lib/guardedDocumentsQuery.ts).
 
     // Real-time Users subscription
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+    const unsubUsers = onSnapshot(byCompany('users'), (snapshot) => {
       const list: UserAccount[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as UserAccount);
-      });
-      if (list.length > 0) {
-        rawSetUsers(prev => {
-          const map = new Map<string, UserAccount>();
-          prev.forEach(item => map.set(item.id, item));
-          list.forEach(item => {
-            const existingKey = Array.from(map.keys()).find(k => 
-              k === item.id || 
-              (map.get(k)?.username && item.username && map.get(k)!.username.toLowerCase() === item.username.toLowerCase())
-            );
-            if (existingKey) {
-              map.delete(existingKey);
-            }
-            map.set(item.id, item);
-          });
-          const result = Array.from(map.values());
-          localStorage.setItem('ms-users', JSON.stringify(result));
-          return result;
-        });
-      }
+      snapshot.forEach((doc) => list.push(doc.data() as UserAccount));
+      rawSetUsers(list);
+      localStorage.setItem(cacheKey('ms-users'), JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (users):", err);
     });
 
-    // Real-time Permissions subscription
-    const unsubPermissions = onSnapshot(doc(db, 'permissions', 'default'), (docSnap) => {
+    // Real-time Permissions subscription — um documento por empresa
+    // (ID = companyId, ver firestore.rules).
+    const unsubPermissions = onSnapshot(doc(db, 'permissions', companyId), (docSnap) => {
       if (docSnap.exists()) {
         rawSetProfilePermissions(docSnap.data() as ProfilePermissions);
       }
@@ -965,7 +928,7 @@ export default function App() {
       unsubUsers();
       unsubPermissions();
     };
-  }, [currentUser, authReady]);
+  }, [currentUser?.companyId, authReady]);
 
   // Check if a user has access to a document (Colaborador = only explicitly linked, Gestor = explicitly linked + sector/group, Admin = all)
   const userHasAccessToDoc = useCallback((doc: ATR | POP | IT, docType: 'atr' | 'pop' | 'it') => {
@@ -1022,63 +985,88 @@ export default function App() {
       .replace(/\s+/g, '.');          // replace spaces with dots
   };
 
-  // Sync employees to users to ensure each has a default account with password '123'
+  // Sync employees to users to ensure each has a default account.
+  //
+  // ACHADO DE SEGURANÇA CORRIGIDO NESTA FASE: esta rotina gravava a senha
+  // padrão "123" — a MESMA para todo funcionário do sistema, sem hash
+  // nenhum e sem marcar "trocar no primeiro acesso" — direto no
+  // Firestore. Na prática, qualquer conta criada por este caminho
+  // (em vez de EmployeeManager/AdminUsersModal) ficava com uma senha
+  // universal e permanente. Agora: senha ainda previsível (mantém o
+  // padrão [PrimeiroNome]123 já usado no resto do app, pra não confundir
+  // quem está implantando o sistema), mas só o HASH é gravado, e
+  // `firstAccess`/`primeiro_acesso` ficam true — obriga trocar no
+  // primeiro login, como qualquer outra conta nova.
   useEffect(() => {
-    let updated = false;
-    const currentUsers = [...users];
+    if (!currentUser?.companyId) return;
+    const companyId = currentUser.companyId;
+    let cancelled = false;
 
-    employees.forEach(emp => {
-      // Check if employee already has a linked user account
-      const hasAccount = currentUsers.some(u => u.employeeId === emp.id);
-      if (!hasAccount) {
-        // Create standard account: username = normalized name, password = '123'
-        const baseUsername = normalizeUsername(emp.name);
-        // Ensure username is unique
-        let finalUsername = baseUsername;
-        let counter = 1;
-        while (currentUsers.some(u => u.username.toLowerCase() === finalUsername.toLowerCase())) {
-          finalUsername = `${baseUsername}${counter}`;
-          counter++;
-        }
+    (async () => {
+      let updated = false;
+      const currentUsers = [...users];
 
-        // Determine default role based on employee's job title
-        const roleLower = emp.role.toLowerCase();
-        const isLeadership = roleLower.includes('gerente') || 
-                            roleLower.includes('coordenador') || 
-                            roleLower.includes('diretor') || 
-                            roleLower.includes('supervisor') || 
-                            roleLower.includes('lider') ||
-                            roleLower.includes('gestor');
-        const defaultRole: 'colaborador' | 'gestor' = isLeadership ? 'gestor' : 'colaborador';
+      for (const emp of employees) {
+        const hasAccount = currentUsers.some(u => u.employeeId === emp.id);
+        if (!hasAccount) {
+          const baseUsername = normalizeUsername(emp.name);
+          let finalUsername = baseUsername;
+          let counter = 1;
+          while (currentUsers.some(u => u.username.toLowerCase() === finalUsername.toLowerCase())) {
+            finalUsername = `${baseUsername}${counter}`;
+            counter++;
+          }
 
-        const newAccount: UserAccount = {
-          id: `user-emp-${emp.id}`,
-          username: finalUsername,
-          name: emp.name,
-          password: '123',
-          role: defaultRole,
-          employeeId: emp.id
-        };
-        currentUsers.push(newAccount);
-        updated = true;
-      } else {
-        // Keep the name in sync if they changed their name in the employee card
-        const matchedIndex = currentUsers.findIndex(u => u.employeeId === emp.id);
-        if (matchedIndex !== -1 && currentUsers[matchedIndex].name !== emp.name) {
-          currentUsers[matchedIndex] = {
-            ...currentUsers[matchedIndex],
-            name: emp.name
+          const roleLower = emp.role.toLowerCase();
+          const isLeadership = roleLower.includes('gerente') ||
+                              roleLower.includes('coordenador') ||
+                              roleLower.includes('diretor') ||
+                              roleLower.includes('supervisor') ||
+                              roleLower.includes('lider') ||
+                              roleLower.includes('gestor');
+          const defaultRole: 'colaborador' | 'gestor' = isLeadership ? 'gestor' : 'colaborador';
+
+          const defaultPassword = getDefaultInitialPassword(emp.name, emp.cpf);
+          const passwordHash = await hashPassword(defaultPassword);
+
+          const newAccount: UserAccount = {
+            id: `user-emp-${emp.id}`,
+            companyId,
+            username: finalUsername,
+            name: emp.name,
+            passwordHash,
+            role: defaultRole,
+            employeeId: emp.id,
+            firstAccess: true,
+            primeiro_acesso: true,
+            accountStatus: 'ativo',
+            status: 'Ativo'
           };
+          currentUsers.push(newAccount);
           updated = true;
+        } else {
+          // Keep the name in sync if they changed their name in the employee card
+          const matchedIndex = currentUsers.findIndex(u => u.employeeId === emp.id);
+          if (matchedIndex !== -1 && currentUsers[matchedIndex].name !== emp.name) {
+            currentUsers[matchedIndex] = {
+              ...currentUsers[matchedIndex],
+              name: emp.name
+            };
+            updated = true;
+          }
         }
       }
-    });
 
-    if (updated) {
-      setUsers(currentUsers);
-      localStorage.setItem('ms-users', JSON.stringify(currentUsers));
-    }
-  }, [employees]);
+      if (!cancelled && updated) {
+        setUsers(currentUsers);
+        localStorage.setItem(cacheKey('ms-users'), JSON.stringify(currentUsers));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [employees, currentUser?.companyId]);
 
   // Current main view tab selection: 'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace'
   // Inicializado a partir da URL carregada (link direto/compartilhado/recarregado
@@ -1275,12 +1263,24 @@ export default function App() {
   const [formIndicators, setFormIndicators] = useState('');
   const [formSteps, setFormSteps] = useState<string>(''); // Semi-colon separated steps
 
-  // Reset database back to default
+  // Reset database back to default.
+  // NOTA (multiempresa): initialATRs/initialPOPs/initialITs são o acervo
+  // específico da ACII — restaurar isso pra qualquer OUTRA empresa
+  // vazaria conteúdo da ACII pro cliente errado, então esta ação fica
+  // restrita ao tenant "acii" até a Fase 2 (catálogo de tipos de
+  // documento configurável por empresa) repensar esta função por
+  // completo. Sem chamada nenhuma na UI hoje (função já estava sem
+  // nenhum botão ligado a ela antes desta fase).
   const handleRestoreDefaults = () => {
+    if (currentUser?.companyId !== 'acii') {
+      alert('Esta ação só está disponível para a empresa ACII nesta fase do produto.');
+      return;
+    }
     if (confirm('Tem certeza que deseja restaurar a base de documentos padrão? Todas as alterações manuais serão perdidas.')) {
-      setATRs(initialATRs);
-      setPOPs(initialPOPs);
-      setITs(initialITs);
+      const companyId = currentUser.companyId;
+      setATRs(initialATRs.map(a => ({ ...a, companyId })));
+      setPOPs(initialPOPs.map(p => ({ ...p, companyId })));
+      setITs(initialITs.map(i => ({ ...i, companyId })));
       setSelectedDocId('');
       setSelectedDocType('pop');
       alert('Base de dados restaurada com sucesso!');
@@ -1468,6 +1468,7 @@ export default function App() {
 
       const newATR: ATR = {
         id: formId,
+        companyId: currentUser?.companyId || '',
         title: formTitle,
         sector: formSector,
         directLeader: formDirectLeader,
@@ -1537,6 +1538,7 @@ export default function App() {
 
       const newIT: IT = {
         id: formId,
+        companyId: currentUser?.companyId || '',
         title: formTitle,
         sector: formSector,
         objective: formObjective,
@@ -1611,6 +1613,7 @@ export default function App() {
 
       const newPOP: POP = {
         id: formId,
+        companyId: currentUser?.companyId || '',
         title: formTitle,
         process: formProcess || 'ADMINISTRATIVO',
         sector: formSector,
@@ -2216,7 +2219,8 @@ export default function App() {
           >
         
         {currentView === 'employees' ? (
-          <EmployeeManager 
+          <EmployeeManager
+            companyId={currentUser?.companyId || ''}
             employees={employees}
             setEmployees={setEmployees}
             sectors={sectors}
@@ -2233,6 +2237,7 @@ export default function App() {
           />
         ) : currentView === 'sectors' ? (
           <SectorManager
+            companyId={currentUser?.companyId || ''}
             sectors={sectors}
             setSectors={setSectors}
             employees={employees}

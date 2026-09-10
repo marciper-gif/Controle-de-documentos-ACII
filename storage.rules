@@ -13,15 +13,26 @@ service firebase.storage {
     // admin de verdade — bug reproduzido e diagnosticado em produção.
     //
     // Solução: uma Cloud Function (functions/index.js,
-    // syncAuthLinkClaims) espelha auth_links/{uid} (role, sectorId) em
-    // Custom Claims do Firebase Auth sempre que esse documento muda.
-    // Custom claims vêm DENTRO do token (request.auth.token), então o
-    // Storage lê sem nenhuma consulta cross-service — problema resolvido
-    // na raiz, não contornado.
+    // syncAuthLinkClaims) espelha auth_links/{uid} (companyId, role,
+    // sectorId) em Custom Claims do Firebase Auth sempre que esse
+    // documento muda. Custom claims vêm DENTRO do token
+    // (request.auth.token), então o Storage lê sem nenhuma consulta
+    // cross-service — problema resolvido na raiz, não contornado.
+    //
+    // MULTIEMPRESA: o caminho de cada arquivo agora leva o companyId
+    // (documentos/{companyId}/{sectorId}/{documentId}/{fileName}), e
+    // toda regra abaixo exige que o companyId do token bata com o
+    // companyId do caminho. Sem isso, bastaria um usuário da Empresa A
+    // adivinhar o caminho de um arquivo da Empresa B pra baixá-lo — o
+    // isolamento do Firestore sozinho não protege o Storage.
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
       return request.auth != null;
+    }
+
+    function currentCompanyId() {
+      return isAuthenticated() ? request.auth.token.companyId : null;
     }
 
     function currentRole() {
@@ -40,6 +51,10 @@ service firebase.storage {
       return currentRole() == 'gestor' || currentRole() == 'lider';
     }
 
+    function belongsToCompany(companyId) {
+      return currentCompanyId() != null && currentCompanyId() == companyId;
+    }
+
     // Validação server-side das restrições de upload do item 2 da
     // especificação (o modal de envio, item 4.3, também valida no
     // cliente — isto é só uma segunda barreira, defesa em profundidade).
@@ -56,8 +71,8 @@ service firebase.storage {
         );
     }
 
-    // documentos/{sectorId}/{documentId}/v{version}_{fileName}
-    match /documentos/{sectorId}/{documentId}/{fileName} {
+    // documentos/{companyId}/{sectorId}/{documentId}/v{version}_{fileName}
+    match /documentos/{companyId}/{sectorId}/{documentId}/{fileName} {
       // NOTA: o campo extraViewerSectorIds (setores extras com permissão
       // de visualização de um documento específico, item 5/6 da
       // especificação) NÃO é checado aqui — ele vive em
@@ -70,13 +85,15 @@ service firebase.storage {
       // real no uso, resolver com uma Cloud Function callable que gera
       // uma URL assinada de download após checar o Firestore no servidor
       // (sem as limitações do storage.rules).
-      allow read: if isAuthenticated() && (isAdmin() || currentSectorId() == sectorId);
+      allow read: if isAuthenticated() && belongsToCompany(companyId) &&
+        (isAdmin() || currentSectorId() == sectorId);
 
-      // Upload/nova versão: admin ou gestor do próprio setor da pasta.
+      // Upload/nova versão: admin ou gestor do próprio setor da pasta,
+      // sempre dentro da própria empresa.
       // TODO (etapa 9 da especificação): incluir aqui também quem tiver
       // canUploadDocuments == true no perfil — precisa entrar nos custom
-      // claims também (hoje só role/sectorId são espelhados).
-      allow create, update: if isAuthenticated() &&
+      // claims também (hoje só role/sectorId/companyId são espelhados).
+      allow create, update: if isAuthenticated() && belongsToCompany(companyId) &&
         (isAdmin() || (isGestor() && currentSectorId() == sectorId)) &&
         isValidDocumentUpload();
 

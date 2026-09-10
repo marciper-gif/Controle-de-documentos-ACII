@@ -114,6 +114,11 @@ export default function UploadDocumentModal({
       setError('Setor inválido.');
       return;
     }
+    if (!currentUser?.companyId) {
+      setError('Sessão sem empresa vinculada. Faça login novamente.');
+      return;
+    }
+    const companyId = currentUser.companyId;
 
     submittingRef.current = true;
     setUploading(true);
@@ -124,6 +129,7 @@ export default function UploadDocumentModal({
       const documentId = generateGuardedDocumentId();
       const { fileUrl, storagePath } = await uploadGuardedDocumentFile(
         file,
+        companyId,
         sectorId,
         documentId,
         1,
@@ -136,6 +142,7 @@ export default function UploadDocumentModal({
 
       const newDoc: GuardedDocument = {
         id: documentId,
+        companyId,
         title: title.trim(),
         titleLower: normalizeForSearch(title.trim()),
         sectorId,

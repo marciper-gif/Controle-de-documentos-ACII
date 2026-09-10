@@ -8,6 +8,7 @@ import { SectorData, Employee, POP, ATR } from '../types';
 import { dbDeleteSector } from '../lib/firebaseSync';
 
 interface SectorManagerProps {
+  companyId: string;
   sectors: SectorData[];
   setSectors: React.Dispatch<React.SetStateAction<SectorData[]>>;
   employees: Employee[];
@@ -29,6 +30,7 @@ const COLOR_PALETTES = [
 ];
 
 export default function SectorManager({
+  companyId,
   sectors,
   setSectors,
   employees,
@@ -121,6 +123,7 @@ export default function SectorManager({
       // Create
       const newSec: SectorData = {
         id: `SEC-${Math.floor(100 + Math.random() * 900)}`,
+        companyId,
         name: formName.trim(),
         description: formDescription.trim(),
         color: formColor

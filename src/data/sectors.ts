@@ -1,6 +1,7 @@
 import { SectorData } from '../types';
 
-export const initialSectors: SectorData[] = [
+// Sem companyId — ver comentário equivalente em src/data/atrs.ts.
+export const initialSectors: Omit<SectorData, 'companyId'>[] = [
   { 
     id: 'SEC-001', 
     name: 'Administrativo', 

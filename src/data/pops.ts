@@ -1,6 +1,7 @@
 import { POP } from '../types';
 
-export const initialPOPs: POP[] = [
+// Sem companyId — ver comentário equivalente em src/data/atrs.ts.
+export const initialPOPs: Omit<POP, 'companyId'>[] = [
   {
     id: 'POP-001',
     title: 'Participação em Eventos e Reuniões de Patrocínio',

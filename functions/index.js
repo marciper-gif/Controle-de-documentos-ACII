@@ -2,23 +2,24 @@
  * syncAuthLinkClaims
  * ─────────────────────────────────────────────────────────────────────
  * Por quê isso existe: as Storage Rules do módulo de guarda de documentos
- * (storage.rules) precisam saber o papel (role) e o setor (sectorId) de
- * quem está pedindo, pra decidir se pode ler/enviar um arquivo. O jeito
- * natural seria o Storage consultar auth_links/{uid} no Firestore
- * ("cross-service rules", firestore.get()) — só que esse recurso do
- * Firebase SÓ funciona com o banco Firestore "(default)", e este projeto
- * usa um banco NOMEADO. Então o Storage nunca consegue ler auth_links
- * diretamente, e qualquer checagem de papel/setor no storage.rules falha
- * sempre (mesmo para admin).
+ * (storage.rules) precisam saber a empresa (companyId), o papel (role) e
+ * o setor (sectorId) de quem está pedindo, pra decidir se pode ler/enviar
+ * um arquivo. O jeito natural seria o Storage consultar auth_links/{uid}
+ * no Firestore ("cross-service rules", firestore.get()) — só que esse
+ * recurso do Firebase SÓ funciona com o banco Firestore "(default)", e
+ * este projeto usa um banco NOMEADO. Então o Storage nunca consegue ler
+ * auth_links diretamente, e qualquer checagem de papel/setor no
+ * storage.rules falha sempre (mesmo para admin).
  *
  * A solução recomendada pelo próprio Firebase pra esse cenário é usar
- * Custom Claims: gravar papel/setor DENTRO do token de autenticação do
- * usuário (request.auth.token.role / .sectorId), que o Storage Rules lê
- * de graça, sem nenhuma consulta cross-service. Só o Admin SDK (rodando
- * em uma Cloud Function, nunca no cliente) pode gravar custom claims —
- * daí esta function: toda vez que auth_links/{uid} é criado/atualizado
- * pelo app (ver src/lib/authLink.ts), ela espelha role/sectorId pros
- * custom claims daquele uid no Firebase Auth.
+ * Custom Claims: gravar companyId/papel/setor DENTRO do token de
+ * autenticação do usuário (request.auth.token.companyId / .role /
+ * .sectorId), que o Storage Rules lê de graça, sem nenhuma consulta
+ * cross-service. Só o Admin SDK (rodando em uma Cloud Function, nunca no
+ * cliente) pode gravar custom claims — daí esta function: toda vez que
+ * auth_links/{uid} é criado/atualizado pelo app (ver src/lib/authLink.ts),
+ * ela espelha companyId/role/sectorId pros custom claims daquele uid no
+ * Firebase Auth.
  *
  * O cliente, depois de gravar em auth_links, força um refresh do ID
  * token (getIdTokenResult(true), com retry) até ver os claims batendo —
@@ -51,17 +52,19 @@ exports.syncAuthLinkClaims = onDocumentWritten(
     try {
       if (!after) {
         // Documento apagado (não deveria acontecer no fluxo normal do
-        // app) — limpa os claims por segurança, em vez de deixar um
-        // papel/setor obsoleto valendo pra sempre no token desse uid.
-        await getAuth().setCustomUserClaims(uid, { role: null, sectorId: null });
+        // app) — limpa os claims por segurança, em vez de deixar uma
+        // empresa/papel/setor obsoletos valendo pra sempre no token
+        // desse uid.
+        await getAuth().setCustomUserClaims(uid, { companyId: null, role: null, sectorId: null });
         logger.info(`Claims limpos para uid=${uid} (auth_links removido).`);
         return;
       }
 
+      const companyId = after.companyId ?? null;
       const role = after.role ?? null;
       const sectorId = after.sectorId ?? null;
-      await getAuth().setCustomUserClaims(uid, { role, sectorId });
-      logger.info(`Claims sincronizados para uid=${uid}: role=${role}, sectorId=${sectorId}`);
+      await getAuth().setCustomUserClaims(uid, { companyId, role, sectorId });
+      logger.info(`Claims sincronizados para uid=${uid}: companyId=${companyId}, role=${role}, sectorId=${sectorId}`);
     } catch (err) {
       // Não há como "falhar" de volta pro cliente aqui (é um trigger
       // assíncrono) — o retry do cliente (waitForClaimsSync) vai apenas

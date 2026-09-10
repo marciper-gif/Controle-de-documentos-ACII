@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { KeyRound, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { UserAccount } from '../types';
-import { trocarSenha } from '../lib/userManagement';
+import { trocarSenha, hashPassword } from '../lib/userManagement';
 
 interface TrocaSenhaProps {
   key?: string;
@@ -53,11 +53,15 @@ export default function TrocaSenha({ userId, userAccount, onSuccess, onCancel }:
 
     try {
       const res = await trocarSenha(userId, novaSenha);
+      // trocarSenha já grava o hash no Firestore — aqui só espelhamos o
+      // mesmo hash no objeto local (nunca a senha em texto puro, e nunca
+      // a senha crua no lugar do hash: isso já foi um bug real aqui).
+      const passwordHash = await hashPassword(novaSenha);
 
       const updatedUser: UserAccount = {
         ...userAccount,
-        password: novaSenha,
-        passwordHash: novaSenha,
+        password: undefined,
+        passwordHash,
         firstAccess: false,
         primeiro_acesso: false,
         accountStatus: 'ativo',

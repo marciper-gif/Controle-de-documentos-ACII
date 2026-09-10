@@ -39,6 +39,7 @@ export function resolveUserSectorId(
  * esse caso residual.
  */
 async function waitForClaimsSync(
+  expectedCompanyId: string,
   expectedRole: string,
   expectedSectorId: string | null,
   maxAttempts = 10,
@@ -50,7 +51,9 @@ async function waitForClaimsSync(
     try {
       const result = await user.getIdTokenResult(true);
       const claimsMatch =
-        result.claims.role === expectedRole && (result.claims.sectorId ?? null) === expectedSectorId;
+        result.claims.companyId === expectedCompanyId &&
+        result.claims.role === expectedRole &&
+        (result.claims.sectorId ?? null) === expectedSectorId;
       if (claimsMatch) return;
     } catch (e) {
       console.warn('Falha ao verificar custom claims após login:', e);
@@ -81,6 +84,7 @@ export async function linkFirebaseAuthToAppUser(
     await setDoc(
       doc(db, 'auth_links', firebaseUid),
       {
+        companyId: user.companyId,
         userId: user.id,
         role: user.role,
         sectorId,
@@ -88,7 +92,7 @@ export async function linkFirebaseAuthToAppUser(
       },
       { merge: true }
     );
-    await waitForClaimsSync(user.role, sectorId);
+    await waitForClaimsSync(user.companyId, user.role, sectorId);
   } catch (e) {
     // Não bloqueia o login do usuário por causa disso — só registra o aviso.
     // Sem o vínculo, as regras tratam a sessão como sem papel/setor (leitura

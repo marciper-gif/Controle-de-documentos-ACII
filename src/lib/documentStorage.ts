@@ -84,13 +84,14 @@ const RETRY_DELAYS_MS = [4000, 8000, 15000, 25000];
  */
 export async function uploadGuardedDocumentFile(
   file: File,
+  companyId: string,
   sectorId: string,
   documentId: string,
   version: number,
   onProgress?: (pct: number) => void,
   onRetry?: (attempt: number, totalAttempts: number) => void
 ): Promise<{ fileUrl: string; storagePath: string }> {
-  const storagePath = `documentos/${sectorId}/${documentId}/v${version}_${file.name}`;
+  const storagePath = `documentos/${companyId}/${sectorId}/${documentId}/v${version}_${file.name}`;
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {

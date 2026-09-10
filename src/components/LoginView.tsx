@@ -1,10 +1,11 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, User, Eye, EyeOff, ShieldAlert, LogIn, Shield } from 'lucide-react';
+import { Lock, User, Eye, EyeOff, ShieldAlert, LogIn, Shield, Building2 } from 'lucide-react';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../lib/firebase';
-import { UserAccount } from '../types';
+import { UserAccount, Company } from '../types';
 import { fazerLogin } from '../lib/userManagement';
+import { getActiveCompanies } from '../lib/companies';
 import TrocaSenha from './TrocaSenha';
 
 interface LoginViewProps {
@@ -14,18 +15,42 @@ interface LoginViewProps {
 }
 
 export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewProps) {
+  // Empresa (tenant) — obrigatória a partir da Fase 1: o mesmo CPF pode
+  // existir em duas empresas diferentes, então o login precisa saber
+  // ANTES qual empresa consultar (ver comentário em
+  // src/lib/userManagement.ts, função fazerLogin).
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companyId, setCompanyId] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
 
   // First access password change state
   const [pendingUser, setPendingUser] = useState<UserAccount | null>(null);
 
+  useEffect(() => {
+    getActiveCompanies().then(list => {
+      setCompanies(list);
+      if (list.length === 1) setCompanyId(list[0].id);
+      setLoadingCompanies(false);
+    });
+  }, []);
+
   const handleGoogleLogin = async () => {
     setError(null);
+    if (!companyId) {
+      setError('Selecione a empresa antes de entrar com o Google.');
+      return;
+    }
     try {
+      // App.tsx (onAuthStateChanged) lê isto pra saber a qual empresa
+      // vincular a sessão do Google — esse fluxo roda fora desta tela
+      // (é um redirecionamento/popup do próprio Firebase), então não dá
+      // pra simplesmente passar companyId como parâmetro de função.
+      sessionStorage.setItem('ms-pending-login-company-id', companyId);
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (e: any) {
@@ -38,6 +63,10 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
     e.preventDefault();
     setError(null);
 
+    if (!companyId) {
+      setError('Selecione a empresa para continuar.');
+      return;
+    }
     if (!username.trim() || !password.trim()) {
       setError('Por favor, preencha o usuário/CPF e a senha.');
       return;
@@ -46,7 +75,7 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
     setLoading(true);
 
     try {
-      const res = await fazerLogin(username, password, users);
+      const res = await fazerLogin(companyId, username, password, users);
 
       if (res.precisaTrocarSenha) {
         setPendingUser(res.userData);
@@ -87,16 +116,20 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
         className="w-full max-w-md z-10"
       >
         {/* Header Branding */}
+        {/* Nota (Fase 4): logo/cor/nome fixos da ACII saem daqui quando a
+            marca do produto (Normatiza) e a identidade por empresa forem
+            implementadas — por ora, mantido genérico com o nome da
+            empresa selecionada, quando houver. */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-[#1e3a5f] dark:bg-[#2b5182] rounded-2xl shadow-xl text-white font-black text-2xl mb-3 border border-white/20">
-            ACII
+            <Building2 className="w-7 h-7" />
           </div>
           <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight font-display">
             Controle de Processos
           </h2>
           <p className="text-xs text-[#1e3a5f] dark:text-sky-400 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
             <Shield className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Associação Comercial de Imperatriz</span>
+            <span>{companies.find(c => c.id === companyId)?.name || 'Portal de Documentos'}</span>
           </p>
         </div>
 
@@ -139,6 +172,29 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
                     <span>{error}</span>
                   </motion.div>
                 )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1.5 pl-1">
+                    Empresa
+                  </label>
+                  <div className="relative">
+                    <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <select
+                      required
+                      value={companyId}
+                      onChange={e => setCompanyId(e.target.value)}
+                      disabled={loadingCompanies}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f] transition-all font-medium appearance-none"
+                    >
+                      <option value="" disabled>
+                        {loadingCompanies ? 'Carregando empresas...' : 'Selecione a empresa'}
+                      </option>
+                      {companies.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1.5 pl-1">

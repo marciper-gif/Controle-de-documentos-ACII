@@ -9,83 +9,16 @@ import { salvarDocumento, deletarDocumento } from '../config/firebase';
 import { logSystemEvent } from '../utils/logger';
 import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument } from '../types';
 
-// Initial Data imports for seeding
-import { initialSectors } from '../data/sectors';
-import { initialATRs } from '../data/atrs';
-import { initialPOPs } from '../data/pops';
-import { initialITs } from '../data/its';
+import { syncLoginIndex } from './userManagement';
 
-import { hashPassword } from './userManagement';
-
-/**
- * Seeds the database if the collections are empty.
- * Ensures the first-time Firebase user has the default ACII workspace.
- */
-export async function seedDatabaseIfEmpty() {
-  try {
-    // Check if sectors are empty or missing any default sector
-    const sectorsSnap = await getDocs(collection(db, 'sectors'));
-    if (sectorsSnap.empty) {
-      console.log('Seeding sectors...');
-      for (const sector of initialSectors) {
-        await salvarDocumento('sectors', sector, sector.id);
-      }
-    } else {
-      const existingDocIds = new Set(sectorsSnap.docs.map(d => d.id));
-      for (const sector of initialSectors) {
-        if (!existingDocIds.has(sector.id)) {
-          await salvarDocumento('sectors', sector, sector.id);
-        }
-      }
-    }
-
-    // Employees collection is populated solely by user creation in the system
-
-    // Check if ATRs are missing any default ATR
-    const atrsSnap = await getDocs(collection(db, 'atrs'));
-    const existingAtrIds = new Set(atrsSnap.docs.map(d => d.id));
-    for (const atr of initialATRs) {
-      if (!existingAtrIds.has(atr.id)) {
-        await salvarDocumento('atrs', atr, atr.id);
-      }
-    }
-
-    // Check if POPs are missing any default POP
-    const popsSnap = await getDocs(collection(db, 'pops'));
-    const existingPopIds = new Set(popsSnap.docs.map(d => d.id));
-    for (const pop of initialPOPs) {
-      if (!existingPopIds.has(pop.id)) {
-        await salvarDocumento('pops', pop, pop.id);
-      }
-    }
-
-    // Check if ITs are missing any default IT
-    const itsSnap = await getDocs(collection(db, 'its'));
-    const existingItIds = new Set(itsSnap.docs.map(d => d.id));
-    for (const it of initialITs) {
-      if (!existingItIds.has(it.id)) {
-        await salvarDocumento('its', it, it.id);
-      }
-    }
-
-    // Check if users are empty
-    const usersSnap = await getDocs(collection(db, 'users'));
-    if (usersSnap.empty) {
-      console.log('Seeding default users...');
-      const adminHash = await hashPassword('admin');
-      const collabHash = await hashPassword('Colaborador123');
-      const defaultUsers: UserAccount[] = [
-        { id: '1', username: 'admin', name: 'Administrador Geral', password: 'admin', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
-        { id: '2', username: 'colaborador', name: 'Colaborador Padrão', password: 'Colaborador123', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
-      ];
-      for (const user of defaultUsers) {
-        await salvarDocumento('users', user, user.id);
-      }
-    }
-  } catch (error) {
-    console.error('Error seeding initial data: ', error);
-  }
-}
+// NOTA: cadastrar uma empresa (tenant) nova NÃO pode ser feito por aqui —
+// firestore.rules fecha `companies` para escrita via cliente de propósito
+// (allow write: if false), então nem um admin logado no app consegue criar
+// uma empresa pelo SDK cliente. Isso é intencional: hoje o cadastro é
+// feito por mim, fora do app, via script com o Admin SDK (que ignora as
+// regras) — ver functions/create-company.js, seguindo o mesmo padrão do
+// script de manutenção já existente (functions/backfill-title-lower.js).
+// A Fase 3 decide se isso vira uma tela dentro do produto.
 
 // --- SECORS CRUD ---
 export async function dbSaveSector(sector: SectorData, currentUser?: any) {
@@ -133,8 +66,26 @@ export async function dbDeleteIT(id: string, currentUser?: any) {
 }
 
 // --- USERS CRUD ---
+// Mantém login_index (src/lib/userManagement.ts) em sincronia sempre que
+// uma conta é criada/editada por aqui (AdminUsersModal, EmployeeManager)
+// — é esse espelho, não mais a coleção `users` inteira, que o login
+// consulta antes de existir um vínculo de empresa (ver firestore.rules).
 export async function dbSaveUserAccount(user: UserAccount, currentUser?: any) {
-  return await salvarDocumento('users', user, user.id, currentUser);
+  const res = await salvarDocumento('users', user, user.id, currentUser);
+  try {
+    if (user.companyId && user.username && user.passwordHash) {
+      await syncLoginIndex(
+        user.companyId,
+        user.id,
+        user.username,
+        user.passwordHash,
+        (user.accountStatus || user.status || 'ativo').toLowerCase()
+      );
+    }
+  } catch (e) {
+    console.warn('Falha ao sincronizar login_index:', e);
+  }
+  return res;
 }
 
 export async function dbDeleteUserAccount(id: string, currentUser?: any) {
@@ -142,8 +93,10 @@ export async function dbDeleteUserAccount(id: string, currentUser?: any) {
 }
 
 // --- PERMISSIONS CRUD ---
-export async function dbSavePermissions(perms: ProfilePermissions, currentUser?: any) {
-  return await salvarDocumento('permissions', perms, 'default', currentUser);
+// Um documento por empresa (ID = companyId) — ver firestore.rules,
+// match /permissions/{permCompanyId}.
+export async function dbSavePermissions(companyId: string, perms: ProfilePermissions, currentUser?: any) {
+  return await salvarDocumento('permissions', perms, companyId, currentUser);
 }
 
 // --- GUARDED DOCUMENTS CRUD (Módulo de Guarda de Documentos) ---

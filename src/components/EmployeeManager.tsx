@@ -10,6 +10,7 @@ import { dbSaveUserAccount, dbDeleteEmployee } from '../lib/firebaseSync';
 import { hashPassword, getDefaultInitialPassword } from '../lib/userManagement';
 
 interface EmployeeManagerProps {
+  companyId: string;
   employees: Employee[];
   setEmployees: React.Dispatch<React.SetStateAction<Employee[]>>;
   sectors: SectorData[];
@@ -23,6 +24,7 @@ interface EmployeeManagerProps {
 }
 
 export default function EmployeeManager({
+  companyId,
   employees,
   setEmployees,
   sectors,
@@ -166,6 +168,7 @@ export default function EmployeeManager({
       const newEmpId = `EMP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const newEmp: Employee = {
         id: newEmpId,
+        companyId,
         name: formName,
         email: formEmail,
         phone: formPhone,
@@ -192,9 +195,9 @@ export default function EmployeeManager({
 
       const newUserAccount: UserAccount = {
         id: newEmpId,
+        companyId,
         username: usernameLogin,
         name: formName,
-        password: defaultPassword,
         passwordHash: passHash,
         role: 'colaborador',
         employeeId: newEmpId,

@@ -1,6 +1,7 @@
 import { IT } from '../types';
 
-export const initialITs: IT[] = [
+// Sem companyId — ver comentário equivalente em src/data/atrs.ts.
+export const initialITs: Omit<IT, 'companyId'>[] = [
   {
     id: 'IT-001',
     title: 'Higienização de Teclados e Mouses',

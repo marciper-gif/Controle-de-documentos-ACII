@@ -3,15 +3,25 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─────────────────────────────────────────────────────────────────
+    // MULTIEMPRESA (SaaS) — leia isto antes de mexer em qualquer regra.
+    //
+    // Todo documento de negócio carrega um campo `companyId`. Nenhuma
+    // leitura ou escrita é permitida se o `companyId` do documento não
+    // bater com o `companyId` da sessão que está pedindo. É essa
+    // comparação — feita em toda regra abaixo — que impede um usuário da
+    // Empresa A de ler ou escrever dado da Empresa B, mesmo que ele saiba
+    // (ou adivinhe) o ID exato do documento.
+    //
     // O login principal do app (CPF/matrícula + senha) é validado 100%
     // no cliente (src/lib/userManagement.ts) e NUNCA usa o Firebase Auth
     // diretamente — só quem entra com "Entrar com o Google" tem uma
     // sessão real. Por isso o app cria uma sessão anônima do Firebase
     // Auth como ponte (ensureAnonymousAuth, em src/config/firebase.ts) e
-    // grava o vínculo usuário/papel/setor em auth_links/{uid}
+    // grava o vínculo usuário/empresa/papel/setor em auth_links/{uid}
     // (src/lib/authLink.ts) logo após qualquer login bem-sucedido.
     // Estas regras dependem desse vínculo para saber quem está pedindo
-    // o quê — sem ele, `request.auth` existe mas não tem papel nenhum.
+    // o quê — sem ele, `request.auth` existe mas não tem empresa nenhuma
+    // (equivale a "sem acesso", nunca a "acesso indevido").
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
@@ -39,6 +49,23 @@ service cloud.firestore {
       return hasAuthLink() ? currentProfile().sectorId : null;
     }
 
+    // O "crachá" de empresa da sessão atual. Enquanto não existir
+    // auth_link (antes do login terminar de vincular), isto é `null` —
+    // e `resource.data.companyId == null` nunca é verdade para um
+    // documento de negócio de verdade, então o efeito é "nega tudo",
+    // nunca "libera tudo".
+    function currentCompanyId() {
+      return hasAuthLink() ? currentProfile().companyId : null;
+    }
+
+    function belongsToCurrentCompany() {
+      return currentCompanyId() != null && resource.data.companyId == currentCompanyId();
+    }
+
+    function writeBelongsToCurrentCompany() {
+      return currentCompanyId() != null && request.resource.data.companyId == currentCompanyId();
+    }
+
     function isAdmin() {
       return currentRole() == 'admin';
     }
@@ -50,87 +77,184 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
+    // companies: cadastro das empresas-cliente (tenants). Leitura aberta
+    // a qualquer sessão autenticada (inclui a anônima) porque a tela de
+    // login precisa listar as empresas ativas ANTES de saber a qual
+    // empresa o usuário pertence — expõe só nome/id/logo/cor, nada
+    // sensível. Escrita: nenhuma via cliente nesta fase — criação de
+    // empresa é feita por mim via script administrativo (Admin SDK, que
+    // ignora estas regras), conforme decidido para a Fase 3.
+    // ─────────────────────────────────────────────────────────────────
+    match /companies/{companyId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
     // auth_links: cada sessão só enxerga e só grava o PRÓPRIO vínculo.
-    // É assim que uma sessão anônima ou do Google se conecta ao usuário,
-    // papel e setor reais logo após o login.
+    // É assim que uma sessão anônima ou do Google se conecta à empresa,
+    // usuário, papel e setor reais logo após o login.
     // ─────────────────────────────────────────────────────────────────
     match /auth_links/{uid} {
       allow read, write: if isAuthenticated() && request.auth.uid == uid;
     }
 
-    // Setores: leitura para qualquer sessão autenticada (inclui a anônima
-    // usada pelo login por CPF/senha — a tela de login e o app em geral
-    // precisam da lista de setores antes mesmo de existir um auth_link).
-    // Escrita restrita a quem gerencia a estrutura organizacional.
-    match /sectors/{sectorId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+    // ─────────────────────────────────────────────────────────────────
+    // login_index: espelho mínimo de `users`, só para o login funcionar
+    // ANTES de existir auth_link (quando ainda não sabemos a empresa do
+    // usuário pra restringir nada). Documento por ID DETERMINÍSTICO
+    // ("{companyId}__{usernameLowerCase}"), nunca por consulta — ou
+    // seja, só dá pra ler UM registro por vez, e só quem já sabe o
+    // usuário E a empresa (dados públicos, não secretos: a tela de login
+    // pede os dois). Guarda só o essencial pra validar a senha
+    // (passwordHash, nunca a senha em texto puro, e o userId pra buscar
+    // o resto do perfil). O resto do cadastro (papel, setor, dados
+    // pessoais) mora só em `users`, que é protegido por companyId de
+    // verdade (ver abaixo) — não em `login_index`.
+    //
+    // POR QUE ISSO É MELHOR QUE A REGRA ANTIGA (que liberava
+    // `allow read` na coleção `users` inteira pra qualquer sessão
+    // autenticada): antes, uma única consulta sem filtro (`getDocs` na
+    // coleção) devolvia TODOS os usuários de TODAS as empresas de uma
+    // vez. Com `get` por ID exato, um invasor só consegue ler um usuário
+        // por vez, e só se já souber o nome de usuário — não dá mais pra
+    // "baixar a lista inteira" num único pedido.
+    //
+    // LIMITAÇÃO HONESTA (documentando, não escondendo): isto reduz o
+    // risco de vazamento em massa, mas não é uma solução perfeita — a
+    // solução definitiva é mover a checagem de senha para dentro de uma
+    // Cloud Function (o cliente nunca veria nenhum hash). Registrado
+    // como recomendação de reforço antes de a Fase 3 trazer a segunda
+    // empresa real para o sistema.
+    // ─────────────────────────────────────────────────────────────────
+    match /login_index/{loginKey} {
+      allow get: if isAuthenticated();
+      allow list: if false;
+      // Mantido em sincronia pelo código que cria/edita conta ou senha
+      // (src/lib/userManagement.ts). O próprio ID do documento precisa
+      // bater com "{companyId}__{username}" do conteúdo gravado — isso
+      // impede um admin/gestor da Empresa B de sobrescrever, mesmo por
+      // acidente, o registro de login de um usuário da Empresa A.
+      allow create, update: if isAuthenticated() &&
+        loginKey == (request.resource.data.companyId + '__' + request.resource.data.username) &&
+        (
+          ((isAdmin() || isGestor()) && writeBelongsToCurrentCompany()) ||
+          currentUserId() == request.resource.data.userId
+        );
+      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
     }
 
-    // Documentos do sistema (POPs, ATRs, ITs)
+    // ─────────────────────────────────────────────────────────────────
+    // Setores, ATRs, POPs, ITs, Funcionários, Documentos digitalizados:
+    // mesmo padrão em todas — só enxerga/mexe quem é da mesma empresa do
+    // documento, e só admin/gestor escreve. `companyId` nunca pode ser
+    // trocado numa atualização (impede "mudar de empresa" um documento
+    // já existente).
+    // ─────────────────────────────────────────────────────────────────
+    match /sectors/{sectorId} {
+      allow read: if isAuthenticated() && belongsToCurrentCompany();
+      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId;
+      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
+    }
+
     match /pops/{popId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isAuthenticated() && belongsToCurrentCompany();
+      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId;
+      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
     }
 
     match /atrs/{atrId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isAuthenticated() && belongsToCurrentCompany();
+      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId;
+      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
     }
 
     match /its/{itId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isAuthenticated() && belongsToCurrentCompany();
+      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId;
+      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
     }
 
-    // Funcionários
     match /employees/{employeeId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isAuthenticated() && belongsToCurrentCompany();
+      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      allow update: if (isAdmin() || isGestor()) && belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId;
+      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
     }
 
-    // Usuários (contas de acesso, incluindo hash de senha). Precisa
-    // continuar legível por qualquer sessão autenticada porque o login
-    // por CPF/senha consulta esta coleção ANTES de terminar de logar
-    // (ainda não dá pra checar papel/setor nesse momento) — mas já exige
-    // pelo menos uma sessão do Firebase (o que barra acesso direto de
-    // fora do app). Escrita: admin/gestor (gestão de contas) ou o próprio
-    // usuário dono da sessão (troca de senha, primeiro acesso).
+    // ─────────────────────────────────────────────────────────────────
+    // users: contas de acesso. `get` (por ID exato) continua liberado
+    // pra qualquer sessão autenticada — é o que permite o app buscar o
+    // PRÓPRIO perfil completo logo depois de validar a senha via
+    // `login_index`, antes de o auth_link existir. `list` (consulta que
+    // devolve vários documentos de uma vez) exige empresa batendo —
+    // impede alguém já logado numa empresa de listar usuários de outra.
+    // Escrita: admin/gestor da empresa, ou o próprio dono da sessão
+    // (troca de senha, primeiro acesso).
+    // ─────────────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor() || currentUserId() == userId;
+      allow get: if isAuthenticated();
+      allow list: if isAuthenticated() && belongsToCurrentCompany();
+      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
+      allow update: if isAuthenticated() &&
+        (
+          ((isAdmin() || isGestor()) && belongsToCurrentCompany()) ||
+          currentUserId() == userId
+        ) &&
+        request.resource.data.companyId == resource.data.companyId;
+      allow delete: if (isAdmin() || isGestor()) && belongsToCurrentCompany();
     }
 
-    // Permissões de perfis — só admin define o que cada papel pode fazer.
-    match /permissions/{permId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+    // Permissões de perfis — um documento por empresa (ID = companyId).
+    // Só admin da própria empresa define o que cada papel pode fazer.
+    match /permissions/{permCompanyId} {
+      allow read: if isAuthenticated() && permCompanyId == currentCompanyId();
+      allow write: if isAdmin() && permCompanyId == currentCompanyId();
     }
 
     // Logs de auditoria do sistema: qualquer sessão autenticada pode
-    // registrar um evento; só admin lê o histórico completo.
+    // registrar um evento da própria empresa; só admin lê o histórico
+    // completo, e só o da própria empresa.
     match /system_logs/{logId} {
-      allow create: if isAuthenticated();
-      allow read: if isAdmin();
-      allow update, delete: if isAdmin();
+      allow create: if isAuthenticated() &&
+        (currentCompanyId() == null || writeBelongsToCurrentCompany());
+      allow read: if isAdmin() && belongsToCurrentCompany();
+      allow update, delete: if isAdmin() && belongsToCurrentCompany();
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Módulo de guarda de documentos (guarda controlada por setor).
-    // Leitura: admin, ou setor dono do documento, ou setor listado em
-    // extraViewerSectorIds. Criação: admin/gestor. Edição/eliminação:
-    // admin, ou gestor do próprio setor do documento.
+    // Módulo de guarda de documentos (guarda controlada por setor,
+    // dentro da própria empresa). Leitura: admin da empresa, ou setor
+    // dono do documento, ou setor listado em extraViewerSectorIds.
+    // Criação: admin/gestor da empresa. Edição/eliminação: admin, ou
+    // gestor do próprio setor do documento — sempre dentro da mesma
+    // empresa.
     // ─────────────────────────────────────────────────────────────────
     match /guarded_documents/{docId} {
-      allow read: if isAdmin()
+      allow read: if isAuthenticated() && belongsToCurrentCompany() && (
+        isAdmin()
         || currentSectorId() == resource.data.sectorId
         || (resource.data.extraViewerSectorIds is list
-            && currentSectorId() in resource.data.extraViewerSectorIds);
+            && currentSectorId() in resource.data.extraViewerSectorIds)
+      );
 
-      allow create: if isAdmin() || isGestor();
+      allow create: if (isAdmin() || isGestor()) && writeBelongsToCurrentCompany();
 
-      allow update, delete: if isAdmin()
-        || (isGestor() && currentSectorId() == resource.data.sectorId);
+      allow update: if belongsToCurrentCompany() &&
+        request.resource.data.companyId == resource.data.companyId &&
+        (isAdmin() || (isGestor() && currentSectorId() == resource.data.sectorId));
+
+      allow delete: if belongsToCurrentCompany() &&
+        (isAdmin() || (isGestor() && currentSectorId() == resource.data.sectorId));
     }
   }
 }

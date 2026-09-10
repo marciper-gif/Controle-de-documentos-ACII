@@ -168,18 +168,23 @@ export default function AdminUsersModal({
     }));
   };
 
-  const handleSaveTempPassword = (userId: string) => {
+  const handleSaveTempPassword = async (userId: string) => {
     const passwordToSave = tempPasswords[userId];
     if (passwordToSave === undefined) return;
-    
+
+    // Só o hash é gravado — nunca a senha em texto puro (achado de
+    // segurança da Fase 1). Sem isto, esta tela mudava o campo `password`
+    // mas deixava o `passwordHash` antigo valendo, então a senha exibida
+    // aqui nem era a que realmente destrancava o login.
+    const passHash = await hashPassword(passwordToSave);
     const updatedUsers = users.map(u => {
       if (u.id === userId) {
-        return { ...u, password: passwordToSave };
+        return { ...u, passwordHash: passHash };
       }
       return u;
     });
     onUpdateUsers(updatedUsers);
-    
+
     // Clear temp state for this user to hide the Save button
     setTempPasswords(prev => {
       const copy = { ...prev };
@@ -296,7 +301,7 @@ export default function AdminUsersModal({
       if (u.id === userId) {
         const updatedAcc: UserAccount = {
           ...u,
-          password: defaultPass,
+          password: undefined,
           passwordHash: passHash,
           primeiro_acesso: true,
           firstAccess: true,
@@ -351,7 +356,7 @@ export default function AdminUsersModal({
             ...u,
             name: formName.trim(),
             username: formUsername.trim(),
-            password: newPass || u.password,
+            password: undefined,
             passwordHash: passHash || u.passwordHash,
             role: formRole,
             employeeId: formEmployeeId || undefined,
@@ -373,9 +378,9 @@ export default function AdminUsersModal({
 
       const newUser: UserAccount = {
         id: `user-${Date.now()}`,
+        companyId: currentUser.companyId,
         name: formName.trim(),
         username: formUsername.trim(),
-        password: initialPass,
         passwordHash: passHash,
         role: formRole,
         employeeId: formEmployeeId || undefined,
@@ -459,9 +464,9 @@ export default function AdminUsersModal({
 
     const newAccount: UserAccount = {
       id: emp.id,
+      companyId: currentUser.companyId,
       username: finalUsername,
       name: emp.name,
-      password: defaultPassword,
       passwordHash: passHash,
       role: defaultRole,
       employeeId: emp.id,
@@ -476,10 +481,14 @@ export default function AdminUsersModal({
     setTimeout(() => setSuccess(null), 5000);
   };
 
-  const handleUpdatePassword = (employeeId: string, newPassword: string) => {
+  // NOTA: função sem uso hoje na UI (nenhum botão chama handleUpdatePassword).
+  // Mantida hasheando a senha, caso volte a ser ligada a algum botão —
+  // nunca mais deve gravar `password` em texto puro.
+  const handleUpdatePassword = async (employeeId: string, newPassword: string) => {
+    const passHash = await hashPassword(newPassword);
     const updatedUsers = users.map(u => {
       if (u.employeeId === employeeId) {
-        return { ...u, password: newPassword };
+        return { ...u, passwordHash: passHash };
       }
       return u;
     });
