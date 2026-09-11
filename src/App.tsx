@@ -399,7 +399,7 @@ export default function App() {
   const [sectors, setSectors] = useSectorsState(authReady, companyId);
 
   // Dynamic employees state - only preserving employees created in the system
-  const [employees, setEmployees] = useEmployeesState(authReady, companyId);
+  const [employees, setEmployees, employeesLoading] = useEmployeesState(authReady, companyId);
 
   // (a persistência de `sectors` em localStorage já roda dentro de
   // useSectorsState — esta era mais uma gravação idêntica, removida)
@@ -1615,7 +1615,10 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans transition-colors duration-200 pb-12">
+    <div
+      className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans transition-colors duration-200 pb-12"
+      style={companyBranding.primaryColor ? ({ '--brand-primary': companyBranding.primaryColor } as React.CSSProperties) : undefined}
+    >
       
       {/* Header Bar */}
       <header className="no-print bg-white/90 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 shadow-xs transition-all">
@@ -1635,7 +1638,7 @@ export default function App() {
               ) : (
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0 text-white font-black text-sm"
-                  style={{ backgroundColor: companyBranding.primaryColor || '#10b981' }}
+                  style={{ backgroundColor: 'var(--brand-primary)' }}
                 >
                   {(companyBranding.name || 'Normatiza').charAt(0).toUpperCase()}
                 </div>
@@ -1975,8 +1978,9 @@ export default function App() {
           >
         
         {currentView === 'employees' ? (
-          <EmployeeManager 
+          <EmployeeManager
             employees={employees}
+            employeesLoading={employeesLoading}
             setEmployees={setEmployees}
             sectors={sectors}
             pops={pops}
@@ -3935,6 +3939,7 @@ export default function App() {
         onUpdateUsers={handleUpdateUsers}
         currentUser={currentUser}
         employees={employees}
+        employeesLoading={employeesLoading}
         onUpdateEmployees={setEmployees}
         profilePermissions={profilePermissions}
         onUpdatePermissions={handleUpdatePermissions}

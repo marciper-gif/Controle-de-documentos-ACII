@@ -9,6 +9,25 @@
   --font-mono: "Fira Code", monospace;
 }
 
+/* ───────────────────────────────────────────────────────────────────
+   Fase 5 (polimento) — início de uma camada real de design tokens.
+   ───────────────────────────────────────────────────────────────────
+   --brand-primary: a cor principal DA EMPRESA logada (Company.
+   primaryColor, Fase 4 — editável em Identidade Visual no painel admin).
+   App.tsx grava este valor como estilo inline na raiz do app assim que a
+   empresa carrega; sem empresa/cor definida, cai no valor abaixo
+   (emerald-500, a cor padrão do produto). Hoje só o emblema do logo
+   padrão e o cabeçalho usam isto — ver comentário em AppLogo.tsx sobre
+   por que retingir TODOS os componentes com esta cor não foi feito nesta
+   fase (props soltas > uma varredura arriscada em ~20 arquivos sem
+   ferramenta de QA visual disponível nesta sessão). Fica registrado aqui
+   como o ponto de partida real pra continuar essa migração depois,
+   componente por componente, sem precisar decidir tudo de uma vez.
+*/
+:root {
+  --brand-primary: #10b981; /* emerald-500 — cor padrão do produto */
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

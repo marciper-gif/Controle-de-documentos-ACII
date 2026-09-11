@@ -10,6 +10,17 @@ import { Employee } from '../types';
  * sincronização em tempo real com o Firestore. Extraído de App.tsx — mesmo
  * comportamento de antes, só que isolado num hook próprio.
  * `companyId` (Fase 1 — multiempresa): ver comentário em useSectorsState.ts.
+ *
+ * Fase 5 (polimento): devolve também `loading` — diferente dos outros
+ * hooks de estado (ATR/POP/IT/setores), funcionários NÃO têm nenhum
+ * conteúdo de exemplo pra mostrar enquanto o Firestore ainda não
+ * respondeu (a lista de exemplo desses outros já cobre esse instante
+ * "sem querer"). Sem esse sinal, uma empresa nova via a mensagem "nenhum
+ * funcionário cadastrado" por um instante ANTES da primeira resposta do
+ * Firestore chegar — texto de estado vazio aparecendo como se fosse
+ * definitivo, quando na verdade ainda está carregando. `loading` deixa
+ * de ser `true` assim que a primeira resposta (mesmo vazia) chega, ou se
+ * não há como carregar ainda (sem sessão/empresa).
  */
 export function useEmployeesState(authReady: boolean, companyId: string | null) {
   const [employees, rawSetEmployees] = useState<Employee[]>(() => {
@@ -22,6 +33,10 @@ export function useEmployeesState(authReady: boolean, companyId: string | null) 
       return [];
     }
   });
+  // Já havia algo em cache local? Então não é "carregando" do zero — evita
+  // mostrar skeleton por cima de dado que já se tem (só troca quando o
+  // Firestore confirmar algo diferente).
+  const [loading, setLoading] = useState(() => !localStorage.getItem('ms-employees'));
 
   const setEmployees = useCallback((val: SetStateAction<Employee[]>) => {
     rawSetEmployees((prev) => {
@@ -62,12 +77,14 @@ export function useEmployeesState(authReady: boolean, companyId: string | null) 
         localStorage.setItem('ms-employees', JSON.stringify(merged));
         return merged;
       });
+      setLoading(false);
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);
+      setLoading(false);
     });
 
     return () => unsubEmployees();
   }, [authReady, companyId]);
 
-  return [employees, setEmployees] as const;
+  return [employees, setEmployees, loading] as const;
 }

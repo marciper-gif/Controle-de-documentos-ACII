@@ -28,6 +28,7 @@ interface AdminUsersModalProps {
   onUpdateUsers: (newUsers: UserAccount[]) => void;
   currentUser: UserAccount;
   employees: Employee[];
+  employeesLoading?: boolean;
   onUpdateEmployees: (newEmployees: Employee[]) => void;
   profilePermissions: ProfilePermissions;
   onUpdatePermissions: (newPerms: ProfilePermissions) => void;
@@ -48,6 +49,7 @@ export default function AdminUsersModal({
   onUpdateUsers, 
   currentUser,
   employees,
+  employeesLoading = false,
   onUpdateEmployees,
   profilePermissions,
   onUpdatePermissions,
@@ -719,10 +721,28 @@ export default function AdminUsersModal({
                     );
                   });
 
+                  if (employeesLoading && employees.length === 0) {
+                    // Skeleton — ver nota grande em useEmployeesState.ts sobre
+                    // por que funcionários (diferente de ATR/POP/IT/setores)
+                    // precisam desse sinal explícito de carregamento.
+                    return (
+                      <div className="space-y-2 animate-pulse">
+                        {[0, 1, 2].map(i => (
+                          <div key={i} className="h-16 bg-slate-100 dark:bg-slate-850/60 rounded-xl" />
+                        ))}
+                      </div>
+                    );
+                  }
+
                   if (filtered.length === 0) {
                     return (
-                      <div className="text-center py-8 text-slate-400 text-xs italic">
-                        Nenhum colaborador encontrado para a busca "{gridSearchQuery}".
+                      <div className="text-center py-10 text-slate-400">
+                        <Users className="w-8 h-8 mx-auto mb-2.5 opacity-40" />
+                        <p className="text-xs font-medium">
+                          {employees.length === 0
+                            ? 'Nenhum colaborador cadastrado ainda — cadastre um funcionário para criar a primeira conta de acesso.'
+                            : `Nenhum colaborador encontrado para a busca "${gridSearchQuery}".`}
+                        </p>
                       </div>
                     );
                   }
