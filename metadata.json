@@ -1,6 +1,6 @@
 {
-  "name": "ACII - Controle de Documentos",
-  "description": "Sistema de Controle de Documentos, POPs (Procedimentos Operacionais Padrão) e ATRs (Análise Técnica de Requisitos) da Associação Comercial de Imperatriz (ACII).",
+  "name": "Normatiza",
+  "description": "Normatiza — sistema multiempresa de controle de ATRs, POPs, Instruções de Trabalho e documentos digitalizados por setor.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

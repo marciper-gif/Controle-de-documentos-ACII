@@ -194,7 +194,7 @@ export default function GoogleWorkspaceManager({
       const result = await exportDataToGoogleSheet(token, employees, atrs, pops, its);
       setSheetsResult({
         url: result.spreadsheetUrl,
-        title: `Planilha Geral ACII - ${new Date().toLocaleDateString('pt-BR')}`
+        title: `Planilha Geral - ${new Date().toLocaleDateString('pt-BR')}`
       });
     } catch (err: any) {
       console.error(err);
@@ -243,7 +243,7 @@ export default function GoogleWorkspaceManager({
       const result = await exportToGoogleDoc(token, docData, selectedDocType);
       setDocsResult({
         url: result.documentUrl,
-        title: `Documento [ACII] ${docData.id} - ${docData.title}`
+        title: `Documento ${docData.id} - ${docData.title}`
       });
     } catch (err: any) {
       console.error(err);
@@ -312,10 +312,10 @@ export default function GoogleWorkspaceManager({
     setEmailResult(null);
     setEmailError(null);
 
-    const subject = `[Portal ACII] Documento Disponível para Consulta: ${docData.id} - ${docData.title}`;
+    const subject = `[Normatiza] Documento Disponível para Consulta: ${docData.id} - ${docData.title}`;
     const emailBody = `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 8px;">
-        <h2 style="color: #10b981; margin-top: 0;">Portal de Documentos ACII</h2>
+        <h2 style="color: #10b981; margin-top: 0;">Portal de Documentos</h2>
         <p>Olá, <strong>${recipientName}</strong>,</p>
         <p>Um documento oficial relevante para suas funções está disponível para consulta e leitura no portal:</p>
         
@@ -334,14 +334,14 @@ export default function GoogleWorkspaceManager({
           </p>
         ` : ''}
 
-        <p style="margin-top: 25px;">Por favor, acesse o Portal ACII para revisar todo o conteúdo do documento e registrar sua ciência, se necessário.</p>
+        <p style="margin-top: 25px;">Por favor, acesse o Portal para revisar todo o conteúdo do documento e registrar sua ciência, se necessário.</p>
         
         <div style="margin: 30px 0; text-align: center;">
           <a href="${appUrl}" style="background-color: #10b981; color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block;">Acessar Portal de Documentos</a>
         </div>
 
         <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-top: 30px;" />
-        <p style="font-size: 11px; color: #64748b; text-align: center;">Associação Comercial de Imperatriz (ACII) • Painel Automatizado de Notificações</p>
+        <p style="font-size: 11px; color: #64748b; text-align: center;">Normatiza • Painel Automatizado de Notificações</p>
       </div>
     `;
 
@@ -391,7 +391,7 @@ export default function GoogleWorkspaceManager({
             <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl p-5 text-xs text-sky-850 dark:text-sky-300 space-y-2.5">
               <h3 className="font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">Guia de Integração Workspace</h3>
               <p>
-                O Portal ACII conecta-se de forma direta e segura com as APIs oficiais do Google Workspace. O fluxo é inteiramente client-side, de modo que suas credenciais e chaves de acesso (tokens) permanecem salvas temporariamente na memória do seu navegador, sem expor nenhum dado privado.
+                O Portal conecta-se de forma direta e segura com as APIs oficiais do Google Workspace. O fluxo é inteiramente client-side, de modo que suas credenciais e chaves de acesso (tokens) permanecem salvas temporariamente na memória do seu navegador, sem expor nenhum dado privado.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2 pt-2 border-t border-sky-500/10">
                 <div className="space-y-1">
@@ -506,7 +506,7 @@ export default function GoogleWorkspaceManager({
               </div>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Exporte todos os registros do Portal ACII em tempo real para o Google Sheets. A planilha será gerada com duas abas estruturadas, contendo listagem completa de colaboradores com dados de CPF, matrícula, e-mail e respectivos documentos associados, facilitando relatórios e auditorias de compliance.
+              Exporte todos os registros do Portal em tempo real para o Google Sheets. A planilha será gerada com duas abas estruturadas, contendo listagem completa de colaboradores com dados de CPF, matrícula, e-mail e respectivos documentos associados, facilitando relatórios e auditorias de compliance.
             </p>
 
             <div className="pt-2">

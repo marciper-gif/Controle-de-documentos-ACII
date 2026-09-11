@@ -89,14 +89,14 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
         {/* Header Branding */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-[#1e3a5f] dark:bg-[#2b5182] rounded-2xl shadow-xl text-white font-black text-2xl mb-3 border border-white/20">
-            ACII
+            N
           </div>
           <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight font-display">
-            Controle de Processos
+            Normatiza
           </h2>
           <p className="text-xs text-[#1e3a5f] dark:text-sky-400 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
             <Shield className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Associação Comercial de Imperatriz</span>
+            <span>Controle de Documentos e Processos</span>
           </p>
         </div>
 
@@ -216,7 +216,7 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
 
         {/* Footer info */}
         <div className="text-center mt-6 text-2xs text-slate-400 dark:text-slate-500 font-mono">
-          © {new Date().getFullYear()} ACII Imperatriz • Sistema de Controle de Processos
+          © {new Date().getFullYear()} Normatiza • Sistema de Controle de Documentos e Processos
         </div>
       </motion.div>
     </div>

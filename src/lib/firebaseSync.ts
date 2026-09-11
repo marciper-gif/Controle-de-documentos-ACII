@@ -188,6 +188,15 @@ export async function dbSaveCompanyDocumentTypes(documentTypes: DocumentTypesSet
   return await salvarDocumento('companies', { id: companyId, documentTypes }, companyId, currentUser);
 }
 
+// --- IDENTIDADE VISUAL (Fase 4 — logo e cor principal por empresa) ---
+export async function dbSaveCompanyBranding(
+  branding: { name?: string; logoUrl?: string; primaryColor?: string },
+  currentUser?: any
+) {
+  const companyId = getCurrentCompanyId();
+  return await salvarDocumento('companies', { id: companyId, ...branding }, companyId, currentUser);
+}
+
 // --- GUARDED DOCUMENTS CRUD (Módulo de Guarda de Documentos) ---
 export async function dbSaveGuardedDocument(doc: GuardedDocument, currentUser?: any) {
   return await salvarDocumento('guarded_documents', withCompanyId(doc), doc.id, currentUser);

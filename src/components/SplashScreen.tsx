@@ -101,7 +101,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
               <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-[#2b5182] via-[#1e3a5f] to-emerald-600 p-0.5 shadow-2xl shadow-sky-950/60 flex items-center justify-center">
                 <div className="w-full h-full bg-[#0f172a]/90 backdrop-blur-md rounded-[14px] flex flex-col items-center justify-center p-2 border border-white/15">
                   <span className="font-black text-4xl tracking-tight text-white font-display">
-                    ACII
+                    N
                   </span>
                   <div className="w-6 h-1 bg-gradient-to-r from-sky-400 to-emerald-400 rounded-full mt-1.5" />
                 </div>
@@ -126,11 +126,11 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
               className="space-y-1.5"
             >
               <h1 className="text-2xl font-black uppercase tracking-tight text-slate-100 font-display">
-                Controle de Processos
+                Normatiza
               </h1>
               <p className="text-xs font-bold uppercase tracking-widest text-sky-300/90 flex items-center justify-center gap-1.5">
                 <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Associação Comercial de Imperatriz</span>
+                <span>Controle de Documentos e Processos</span>
               </p>
             </motion.div>
 

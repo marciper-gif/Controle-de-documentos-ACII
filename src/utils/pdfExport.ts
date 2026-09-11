@@ -65,9 +65,9 @@ export async function exportElementToPdf(options: ExportPdfOptions): Promise<voi
   if (documentTitle) {
     pdf.setProperties({
       title: documentTitle,
-      subject: 'Documento Oficial ACII',
-      creator: 'Sistema de Controle de Documentos ACII',
-      author: 'Associação Comercial de Imperatriz'
+      subject: 'Documento Oficial',
+      creator: 'Normatiza — Sistema de Controle de Documentos',
+      author: 'Normatiza'
     });
   }
 

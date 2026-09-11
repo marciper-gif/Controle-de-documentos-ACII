@@ -58,7 +58,7 @@ import SectorManager from './components/SectorManager';
 import GoogleWorkspaceManager from './components/GoogleWorkspaceManager';
 import SplashScreen from './components/SplashScreen';
 import DocumentsView from './components/DocumentsView';
-import ACIILogo from './components/ACIILogo';
+import AppLogo from './components/AppLogo';
 import CompanyOnboardingModal from './components/CompanyOnboardingModal';
 
 // Firebase Integrations
@@ -82,7 +82,8 @@ import {
   dbSaveUserAccount,
   dbDeleteUserAccount,
   dbSavePermissions,
-  dbSaveCompanyDocumentTypes
+  dbSaveCompanyDocumentTypes,
+  dbSaveCompanyBranding
 } from './lib/firebaseSync';
 import { getReviewStatus } from './utils/documentReview';
 import { ViewType, DocType, VIEW_PATHS, computeAppPath, parseAppPath } from './lib/appRouting';
@@ -264,6 +265,23 @@ export default function App() {
   // até o Firestore responder — ver listener em companies/{companyId}
   // logo abaixo, e src/types.ts (DEFAULT_DOCUMENT_TYPES_SETTINGS).
   const [documentTypesSettings, setDocumentTypesSettingsRaw] = useState<DocumentTypesSettings>(DEFAULT_DOCUMENT_TYPES_SETTINGS);
+
+  // Fase 4 (rebranding) — identidade visual da empresa atual (nome, logo,
+  // cor principal). Ver dbSaveCompanyBranding em src/lib/firebaseSync.ts
+  // e a aba "Identidade Visual" em AdminUsersModal.tsx.
+  const [companyBranding, setCompanyBranding] = useState<{ name: string; logoUrl: string; primaryColor: string }>({
+    name: '',
+    logoUrl: '',
+    primaryColor: ''
+  });
+
+  const handleUpdateCompanyBranding = (branding: { name: string; logoUrl: string; primaryColor: string }) => {
+    setCompanyBranding(branding);
+    dbSaveCompanyBranding(branding, currentUser).catch(err => {
+      console.error('Falha ao salvar identidade visual da empresa:', err);
+      alert('⚠️ Não foi possível salvar a identidade visual. Verifique sua conexão e tente novamente.');
+    });
+  };
 
   const handleUpdateDocumentTypesSettings = (settings: DocumentTypesSettings) => {
     setDocumentTypesSettingsRaw(settings);
@@ -620,12 +638,21 @@ export default function App() {
     // substitui, pra uma configuração PARCIAL salva não apagar os tipos
     // que a empresa nunca chegou a mexer.
     const unsubCompany = onSnapshot(doc(db, 'companies', companyId), (docSnap) => {
-      const saved = docSnap.exists() ? (docSnap.data()?.documentTypes as Partial<DocumentTypesSettings> | undefined) : undefined;
+      const data = docSnap.exists() ? docSnap.data() : undefined;
+      const saved = data?.documentTypes as Partial<DocumentTypesSettings> | undefined;
       setDocumentTypesSettingsRaw({
         atr: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.atr, ...saved?.atr },
         pop: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.pop, ...saved?.pop },
         it: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.it, ...saved?.it },
         guarded: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.guarded, ...saved?.guarded }
+      });
+      // Fase 4 (rebranding): identidade visual da empresa — nome, logo,
+      // cor principal. Sem nada configurado ainda, cai em branco e cada
+      // tela decide o próprio fallback genérico ("Normatiza").
+      setCompanyBranding({
+        name: data?.name || '',
+        logoUrl: data?.logoUrl || '',
+        primaryColor: data?.primaryColor || ''
       });
     }, (err) => {
       console.warn("Firestore snapshot error (company):", err);
@@ -1594,18 +1621,31 @@ export default function App() {
       <header className="no-print bg-white/90 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 shadow-xs transition-all">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 lg:h-20 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           
-          {/* Logo & Brand Info */}
+          {/* Logo & Brand Info — Fase 4: identidade da EMPRESA (nome/logo/cor
+              própria, se configurados em Identidade Visual), com "Normatiza"
+              como assinatura da plataforma por baixo. */}
           <div className="flex items-center justify-between lg:justify-start gap-3 w-full lg:w-auto">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0 text-white font-black text-sm">
-                ACII
-              </div>
+              {companyBranding.logoUrl ? (
+                <img
+                  src={companyBranding.logoUrl}
+                  alt={companyBranding.name || 'Logo da empresa'}
+                  className="w-10 h-10 rounded-xl object-contain shrink-0 bg-white/40 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60"
+                />
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0 text-white font-black text-sm"
+                  style={{ backgroundColor: companyBranding.primaryColor || '#10b981' }}
+                >
+                  {(companyBranding.name || 'Normatiza').charAt(0).toUpperCase()}
+                </div>
+              )}
               <div>
                 <h1 className="text-xs sm:text-sm md:text-base font-black tracking-tight text-slate-950 dark:text-white uppercase font-display leading-tight">
-                  Portal de Documentos ACII
+                  {companyBranding.name || 'Portal de Documentos'}
                 </h1>
                 <p className="text-[9px] sm:text-[10px] md:text-xs text-emerald-600 dark:text-emerald-450 font-black uppercase tracking-widest leading-none mt-0.5">
-                  ACII • Associação Comercial de Imperatriz
+                  Normatiza • Controle de Documentos e Processos
                 </p>
               </div>
             </div>
@@ -1873,7 +1913,7 @@ export default function App() {
             </span>
           </div>
           <div className="hidden sm:flex items-center gap-2 text-slate-400 dark:text-slate-500 text-[10px]">
-            <span>ACII Imperatriz • Sistema de Controle de Processos</span>
+            <span>{companyBranding.name || 'Normatiza'} • Sistema de Controle de Documentos e Processos</span>
           </div>
         </div>
       </div>
@@ -2260,7 +2300,7 @@ export default function App() {
                       Controle de Documentos e Processos
                     </h2>
                     <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-xl leading-relaxed">
-                      Gerencie, visualize e exporte os Procedimentos Operacionais Padrão (POPs) e as Atribuições de Responsabilidade (ATRs) de propriedade da ACII.
+                      Gerencie, visualize e exporte os Procedimentos Operacionais Padrão (POPs) e as Atribuições de Responsabilidade (ATRs) da sua empresa.
                     </p>
                   </div>
                   <div className="shrink-0 flex items-center justify-center relative z-10">
@@ -2454,6 +2494,19 @@ export default function App() {
                   </div>
                 </div>
 
+                {/*
+                  Fase 4 (rebranding): os 4 blocos "Destaque" abaixo são
+                  conteúdo promocional da PRÓPRIA ACII — apontam pra IDs
+                  reais de POPs dela (POP-020, POP-028...) que só existem
+                  na base da ACII. Pra qualquer outra empresa, esses
+                  botões levariam a documentos inexistentes (link quebrado
+                  de verdade, não só uma questão visual). Em vez de
+                  apagar um conteúdo que os usuários da ACII já usam,
+                  restrinjo a exibição só a ela — outras empresas
+                  simplesmente não veem esta seção.
+                */}
+                {companyId === DEFAULT_COMPANY_ID && (
+                <>
                 {/* Highlight: Autoridade de Registro (AR) */}
                 <div className="mt-2">
                   <div className="flex items-center justify-between mb-4">
@@ -2621,6 +2674,8 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+                </>
+                )}
               </motion.div>
             ) : (
               <motion.div
@@ -2815,7 +2870,7 @@ export default function App() {
                       
                       {/* Logo and Brand */}
                       <div className="p-4 flex justify-center items-center md:col-span-1 min-h-[90px] bg-slate-50/50 dark:bg-slate-950/20">
-                        <ACIILogo className="w-44 h-auto" />
+                        <AppLogo className="w-44 h-auto" logoUrl={companyBranding.logoUrl} primaryColor={companyBranding.primaryColor} />
                       </div>
 
                       {/* Header Text / Metadata fields */}
@@ -3274,7 +3329,7 @@ export default function App() {
                           <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col justify-between h-28 bg-slate-50/20 dark:bg-slate-950/10">
                             <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Revisado por</span>
                             <div className="border-t border-slate-200 dark:border-slate-800 pt-2 font-bold text-slate-800 dark:text-slate-200">
-                              Gerência Executiva ACII
+                              Gerência Executiva
                               <span className="text-[9px] block text-slate-400 dark:text-slate-500 font-medium mt-0.5">
                                 Gestão de Processos e Qualidade
                               </span>
@@ -3283,7 +3338,7 @@ export default function App() {
                           <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col justify-between h-28 bg-slate-50/20 dark:bg-slate-950/10">
                             <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Aprovado por</span>
                             <div className="border-t border-slate-200 dark:border-slate-800 pt-2 font-bold text-slate-800 dark:text-slate-200">
-                              Diretoria Executiva ACII
+                              Diretoria Executiva
                               <span className="text-[9px] block text-slate-400 dark:text-slate-500 font-medium mt-0.5">
                                 Vigência desde: {activeDoc.emissionDate}
                               </span>
@@ -3294,8 +3349,8 @@ export default function App() {
 
                       {/* PDF Print Page footer notes */}
                       <div className="pt-8 border-t border-slate-150 dark:border-slate-800 flex justify-between text-[10px] text-slate-400 font-mono">
-                        <span>ACII - Associação Comercial, Industrial e Serviços de Imperatriz</span>
-                        <span>Aprovado por: Gerência Executiva ACII</span>
+                        <span>{companyBranding.name || 'Documento gerado pelo Normatiza'}</span>
+                        <span>Aprovado por: Gerência Executiva</span>
                       </div>
 
                     </div>
@@ -3341,7 +3396,7 @@ export default function App() {
                   <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
                     {editingId ? `Editar ${formId}` : `Criar Novo Documento: ${docTypeLabel(formDocType)}`}
                   </h3>
-                  <p className="text-3xs text-slate-400">Preencha os campos abaixo para salvar na base local de documentos da ACII</p>
+                  <p className="text-3xs text-slate-400">Preencha os campos abaixo para salvar na base de documentos da empresa</p>
                 </div>
                 <button
                   onClick={() => setIsModalOpen(false)}
@@ -3548,7 +3603,7 @@ export default function App() {
                           type="text"
                           value={formIndirectLeader}
                           onChange={e => setFormIndirectLeader(e.target.value)}
-                          placeholder="Ex: Presidente ACII"
+                          placeholder="Ex: Diretor Executivo"
                           className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-slate-250 focus:outline-none"
                         />
                       </div>
@@ -3888,6 +3943,8 @@ export default function App() {
         its={its}
         documentTypesSettings={documentTypesSettings}
         onUpdateDocumentTypesSettings={handleUpdateDocumentTypesSettings}
+        companyBranding={companyBranding}
+        onUpdateCompanyBranding={handleUpdateCompanyBranding}
         onSelectDoc={(id, type) => {
           setSelectedDocId(id);
           setSelectedDocType(type);

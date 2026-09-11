@@ -157,7 +157,7 @@ const formatDocToReportText = (doc: any, type: 'atr' | 'pop' | 'it'): string => 
     text += '\n';
   }
 
-  text += `Documento exportado do Portal ACII em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}\n`;
+  text += `Documento exportado do Portal em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}\n`;
   return text;
 };
 
@@ -169,7 +169,7 @@ export const exportToGoogleDoc = async (
   docData: any,
   type: 'atr' | 'pop' | 'it'
 ): Promise<{ documentId: string; documentUrl: string }> => {
-  const title = `[ACII] ${docData.id} - ${docData.title}`;
+  const title = `${docData.id} - ${docData.title}`;
 
   // Step A: Create an empty Google Doc
   const createRes = await fetch('https://docs.googleapis.com/v1/documents', {
@@ -229,9 +229,9 @@ export const exportDataToGoogleSheet = async (
   pops: POP[],
   its: IT[]
 ): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> => {
-  const sheetTitle = `ACII Portal - Painel Geral (${new Date().toLocaleDateString('pt-BR')})`;
+  const sheetTitle = `Normatiza - Painel Geral (${new Date().toLocaleDateString('pt-BR')})`;
 
-  // Create spreadsheet with two sheets: "Funcionários" and "Documentos (ACII)"
+  // Create spreadsheet with two sheets: "Funcionários" and "Documentos"
   const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
     headers: {

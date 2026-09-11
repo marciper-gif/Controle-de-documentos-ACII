@@ -1,10 +1,10 @@
 import { useState, FormEvent, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key, 
+import {
+  X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key,
   CheckCircle, User, ShieldCheck, Eye, EyeOff, Sliders, Shield, Award, HelpCircle,
   Briefcase, Layers, FileText, Plus, Search, Lock, History, Clock, ArrowUpRight,
-  RotateCcw, Power, Check
+  RotateCcw, Power, Check, Palette
 } from 'lucide-react';
 import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT, DocumentTypesSettings } from '../types';
 import { dbSaveUserAccount, dbDeleteUserAccount } from '../lib/firebaseSync';
@@ -37,6 +37,8 @@ interface AdminUsersModalProps {
   onSelectDoc?: (id: string, type: 'pop' | 'atr' | 'it') => void;
   documentTypesSettings: DocumentTypesSettings;
   onUpdateDocumentTypesSettings: (settings: DocumentTypesSettings) => void;
+  companyBranding: { name: string; logoUrl: string; primaryColor: string };
+  onUpdateCompanyBranding: (branding: { name: string; logoUrl: string; primaryColor: string }) => void;
 }
 
 export default function AdminUsersModal({ 
@@ -54,9 +56,15 @@ export default function AdminUsersModal({
   its,
   onSelectDoc,
   documentTypesSettings,
-  onUpdateDocumentTypesSettings
+  onUpdateDocumentTypesSettings,
+  companyBranding,
+  onUpdateCompanyBranding
 }: AdminUsersModalProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'content_control' | 'document_types' | 'logs'>('content_control');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'content_control' | 'document_types' | 'branding' | 'logs'>('content_control');
+  // Rascunho local da identidade visual — commit só ao sair do campo
+  // (onBlur), mesmo raciocínio do nome de exibição na aba "Tipos de
+  // Documento": evita gravar no Firestore a cada tecla digitada.
+  const [brandingDraft, setBrandingDraft] = useState(companyBranding);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   
@@ -585,7 +593,7 @@ export default function AdminUsersModal({
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
           {/* Subtabs inside Modal */}
-          <div className="grid grid-cols-3 sm:grid-cols-5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1">
+          <div className="grid grid-cols-3 sm:grid-cols-6 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1">
             <button
               onClick={() => setActiveSubTab('content_control')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -629,6 +637,17 @@ export default function AdminUsersModal({
             >
               <Layers className="w-3.5 h-3.5" />
               <span>Tipos de Documento</span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('branding')}
+              className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeSubTab === 'branding'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-450 font-black shadow-3xs border border-emerald-500/15'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5" />
+              <span>Identidade Visual</span>
             </button>
             <button
               onClick={() => setActiveSubTab('logs')}
@@ -1436,6 +1455,82 @@ export default function AdminUsersModal({
                 );
               })}
             </div>
+          ) : activeSubTab === 'branding' ? (
+            <div className="space-y-4">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl text-[11px] leading-relaxed text-slate-750 dark:text-slate-300 flex gap-2.5">
+                <Palette className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-450" />
+                <span>
+                  Nome, logo e cor aparecem no cabeçalho do sistema e no topo dos documentos
+                  exportados/impressos. O logo é informado por URL (link de uma imagem já hospedada
+                  em algum lugar — Google Drive público, seu site, etc.); envio direto de arquivo
+                  ainda não existe nesta fase.
+                </span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Nome da Empresa</label>
+                  <input
+                    type="text"
+                    defaultValue={brandingDraft.name}
+                    placeholder="Nome de exibição da empresa"
+                    onBlur={(e) => {
+                      const next = { ...brandingDraft, name: e.target.value.trim() };
+                      setBrandingDraft(next);
+                      if (next.name !== companyBranding.name) onUpdateCompanyBranding(next);
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">URL do Logo (opcional)</label>
+                  <input
+                    type="text"
+                    defaultValue={brandingDraft.logoUrl}
+                    placeholder="https://.../logo.png"
+                    onBlur={(e) => {
+                      const next = { ...brandingDraft, logoUrl: e.target.value.trim() };
+                      setBrandingDraft(next);
+                      if (next.logoUrl !== companyBranding.logoUrl) onUpdateCompanyBranding(next);
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Cor Principal (opcional)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={brandingDraft.primaryColor || '#10b981'}
+                      onChange={(e) => {
+                        const next = { ...brandingDraft, primaryColor: e.target.value };
+                        setBrandingDraft(next);
+                        onUpdateCompanyBranding(next);
+                      }}
+                      className="w-10 h-10 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer bg-transparent"
+                    />
+                    <input
+                      type="text"
+                      defaultValue={brandingDraft.primaryColor}
+                      placeholder="#10b981"
+                      onBlur={(e) => {
+                        const next = { ...brandingDraft, primaryColor: e.target.value.trim() };
+                        setBrandingDraft(next);
+                        if (next.primaryColor !== companyBranding.primaryColor) onUpdateCompanyBranding(next);
+                      }}
+                      className="flex-1 px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors text-xs font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5">
+                    Usada hoje só no emblema padrão do logo (quando não há URL de logo própria) e no
+                    cabeçalho do sistema. Retingir o app inteiro com esta cor é um trabalho maior,
+                    de design, que fica pra mais adiante.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : activeSubTab === 'logs' ? (
             <div className="space-y-5">
               {/* Banner */}
@@ -1443,7 +1538,7 @@ export default function AdminUsersModal({
                 <History className="w-5 h-5 text-amber-600 shrink-0" />
                 <div>
                   <span className="font-extrabold text-amber-700 dark:text-amber-450 block mb-0.5">Logs de Alterações do Sistema:</span>
-                  Histórico cronológico detalhado contendo todas as ações de criação, emissão e revisões efetuadas nos documentos (ATRs, POPs e ITs) da Associação Comercial, Industrial e de Serviços de Imperatriz (ACII).
+                  Histórico cronológico detalhado contendo todas as ações de criação, emissão e revisões efetuadas nos documentos (ATRs, POPs e ITs) da empresa.
                 </div>
               </div>
 

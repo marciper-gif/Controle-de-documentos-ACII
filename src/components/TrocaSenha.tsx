@@ -95,7 +95,7 @@ export default function TrocaSenha({ userId, userAccount, onSuccess, onCancel }:
           <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-2xl text-xs text-amber-800 dark:text-amber-300 font-medium leading-relaxed flex items-start gap-2.5">
             <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <p className="text-left text-[11px]">
-              Por segurança, crie uma nova senha para continuar acessando o Portal de Documentos da ACII.
+              Por segurança, crie uma nova senha para continuar acessando o Portal de Documentos.
             </p>
           </div>
         </div>

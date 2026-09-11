@@ -1,54 +1,37 @@
 import { IT } from '../types';
 
+// ─────────────────────────────────────────────────────────────────────
+// Fase 4 (rebranding) — catálogo de EXEMPLO pra empresa nova (mesmo
+// raciocínio de src/data/sectors.ts). Reduzido a 2 exemplos genéricos.
 export const initialITs: IT[] = [
   {
     id: 'IT-001',
-    title: 'Higienização de Teclados e Mouses',
-    sector: 'Tecnologia da Informação',
-    objective: 'Garantir a limpeza física rápida e correta de mouses e teclados nos postos de atendimento para evitar mau funcionamento e acúmulo de sujeira.',
-    responsible: 'Assistente de TI',
+    title: 'Como Solicitar Reembolso de Despesas',
+    sector: 'Financeiro',
+    objective: 'Orientar o colaborador sobre o passo a passo para solicitar reembolso de despesas realizadas a serviço da empresa.',
+    responsible: 'Colaborador solicitante',
     steps: [
-      'Desconectar o periférico (mouse/teclado) da porta USB do computador.',
-      'Utilizar um pincel de cerdas macias para remover resíduos sólidos entre as teclas e botões.',
-      'Umedecer levemente um pano de microfibra com álcool isopropílico (não utilizar álcool líquido comum nem aplicar diretamente).',
-      'Passar o pano suavemente sobre a superfície das teclas, laterais e cabo.',
-      'Aguardar secar por 1 minuto, reconectar na porta USB e testar o funcionamento.'
+      'Reunir os comprovantes (notas fiscais ou recibos) das despesas realizadas',
+      'Preencher o formulário de solicitação de reembolso com data, valor e finalidade',
+      'Anexar os comprovantes ao formulário',
+      'Enviar a solicitação ao setor Financeiro para análise e pagamento'
     ],
-    emissionDate: '2026-01-15',
-    revision: '1',
-    revisionDate: '2026-01-15'
+    emissionDate: '01/01/2026',
+    revision: '00'
   },
   {
     id: 'IT-002',
-    title: 'Impressão de Relatório Diário de Atendimento',
-    sector: 'Atendimento',
-    objective: 'Instrução simples para exportação e impressão física do relatório consolidado do sistema interno.',
-    responsible: 'Recepcionista',
+    title: 'Como Abrir um Chamado de Suporte de TI',
+    sector: 'TI',
+    objective: 'Orientar o colaborador sobre como registrar corretamente uma solicitação de suporte técnico.',
+    responsible: 'Colaborador solicitante',
     steps: [
-      'Acessar o Painel de Atendimento com login e senha.',
-      'Navegar até o menu Superior > Relatórios > Consolidado Diário.',
-      'Selecionar a data atual e clicar no botão "Filtrar".',
-      'Clicar no ícone de Impressora no canto direito superior.',
-      'Escolher a impressora "ACII-RECEP-01", selecionar o modo "Preto e Branco" e clicar em Imprimir.'
+      'Descrever o problema com o máximo de detalhes possível',
+      'Informar o nível de urgência da solicitação',
+      'Registrar o chamado pelo canal oficial de suporte (sistema, e-mail ou telefone)',
+      'Acompanhar o andamento até a confirmação de resolução'
     ],
-    emissionDate: '2026-02-10',
-    revision: '1',
-    revisionDate: '2026-02-10'
-  },
-  {
-    id: 'IT-003',
-    title: 'Arquivamento de Notas Fiscais Recebidas',
-    sector: 'Financeiro',
-    objective: 'Definir o fluxo de armazenamento digital e físico de notas fiscais recebidas para prestação de contas mensal.',
-    responsible: 'Auxiliar de Faturamento',
-    steps: [
-      'Baixar o arquivo XML e PDF da nota fiscal eletrônica.',
-      'Renomear os arquivos no padrão "AAAA-MM-DD_CNPJ_NUMERO.pdf".',
-      'Salvar na pasta compartilhada "Financeiro > Notas Recebidas > [Ano Atual] > [Mês Atual]".',
-      'Imprimir uma cópia física apenas se houver solicitação específica da Diretoria.',
-      'Registrar o valor, número e fornecedor na planilha de controle do caixa semanal.'
-    ],
-    emissionDate: '2026-03-05',
-    revision: '1'
+    emissionDate: '01/01/2026',
+    revision: '00'
   }
 ];

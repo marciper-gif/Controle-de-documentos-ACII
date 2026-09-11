@@ -353,7 +353,7 @@ export default function FlowchartView({ pop }: FlowchartViewProps) {
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
               {viewMode === 'lanes' 
-                ? 'Visualização sequencial por fases operacionais • Padrão de fluxos integrados ACII' 
+                ? 'Visualização sequencial por fases operacionais • Padrão de fluxos integrados'
                 : 'Mapa de Setor (Ideal para impressão e fixação em mural do departamento)'}
             </p>
           </div>
@@ -793,7 +793,7 @@ export default function FlowchartView({ pop }: FlowchartViewProps) {
 
               {/* Wall Poster sign-offs row */}
               <div className="pt-6 border-t border-slate-200 dark:border-slate-800 flex flex-wrap justify-between gap-4 text-[9px] text-slate-400 font-mono uppercase avoid-break">
-                <span>Procedimento Oficial ACII</span>
+                <span>Procedimento Oficial</span>
                 <span>Homologado por: Gerência Executiva</span>
                 <span>Última Revisão: {pop.emissionDate} • Rev {pop.revision}</span>
               </div>
@@ -825,7 +825,7 @@ export default function FlowchartView({ pop }: FlowchartViewProps) {
           </div>
           <div className="flex items-center gap-1 text-sky-600 dark:text-sky-400 font-bold uppercase tracking-wide">
             <Info className="w-3.5 h-3.5" />
-            <span>Layout Padrão de Fluxo ACII</span>
+            <span>Layout Padrão de Fluxo</span>
           </div>
         </div>
 
