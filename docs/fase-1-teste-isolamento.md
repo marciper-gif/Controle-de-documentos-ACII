@@ -5,6 +5,13 @@ reproduzível de que uma empresa **não consegue**, por nenhum caminho, ler
 ou escrever dado de outra empresa. Não exige programar nada — só seguir os
 passos no Console do Firebase e no navegador.
 
+**Atualização da Fase 3:** a Parte 1 abaixo (criar a empresa de teste na
+mão, pelo Console) já não é mais o único jeito — logado como você
+(marciper@gmail.com) via Google, o botão roxo "Empresas" no topo do app
+cadastra uma empresa nova em segundos. Pode usar ele pra criar a
+`empresa-teste` em vez dos passos manuais, se preferir; o resto do
+roteiro (Partes 2 a 5) continua igual.
+
 **Quando rodar:** depois de publicar `firestore.rules` e `storage.rules`
 novos (e SÓ depois de rodar `functions/migrate-add-company-id.js` — ver o
 aviso na Fase 1 sobre a ordem certa). Pode ser feito em produção com

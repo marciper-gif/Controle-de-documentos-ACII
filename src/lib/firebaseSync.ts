@@ -10,7 +10,7 @@ import { db } from './firebase';
 import { salvarDocumento, deletarDocumento } from '../config/firebase';
 import { logSystemEvent } from '../utils/logger';
 import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument, DocumentTypesSettings } from '../types';
-import { getCurrentCompanyId } from './tenant';
+import { getCurrentCompanyId, DEFAULT_COMPANY_ID } from './tenant';
 
 // Initial Data imports for seeding
 import { initialSectors } from '../data/sectors';
@@ -24,23 +24,24 @@ import { hashPassword } from './userManagement';
  * Seeds the database if the collections are empty — SÓ para o tenant da
  * empresa atual (getCurrentCompanyId(), ver src/lib/tenant.ts).
  *
- * LIMITAÇÃO CONHECIDA (documentando em vez de esconder): os IDs de seed
- * abaixo (SEC-001, Atr-001, POP-001, IT-001, users '1'/'2') continuam
- * sem prefixo de empresa, iguais a antes da Fase 1 — são os mesmos IDs
- * fixos usados em ~15 lugares do app (ex.: App.tsx decide o tipo de um
- * documento pelo prefixo do ID, `id.startsWith('POP-')`). Como hoje só a
- * ACII (DEFAULT_COMPANY_ID) roda de fato este caminho — a Fase 3 (onboarding)
- * ainda não existe, então nenhuma segunda empresa chega a ser seedada —
- * isso não colide na prática ainda. MAS: no dia em que a Fase 3 permitir
- * criar uma segunda empresa, seedar essa empresa com estes MESMOS IDs vai
- * colidir com os documentos da ACII na mesma coleção (Firestore exige ID
- * único por coleção, companyId sendo só um campo, não muda isso). Resolver
- * isso é pré-requisito da Fase 3, não desta fase — sinalizando aqui para
- * não esquecer.
+ * FASE 3 — IDs de seed únicos por empresa: os IDs fixos abaixo (SEC-001,
+ * Atr-001, POP-001, IT-001, users '1'/'2') continuavam iguais pra
+ * qualquer empresa até aqui — inofensivo enquanto só a ACII existia, mas
+ * colidiria (Firestore exige ID único POR COLEÇÃO, companyId sendo só um
+ * campo) no dia em que uma segunda empresa fosse seedada com a mesma
+ * lista. Agora toda empresa QUE NÃO seja a ACII (DEFAULT_COMPANY_ID)
+ * recebe um sufixo `-{companyId}` no ID de cada item semeado — ex.:
+ * "POP-001-acme". Isso preserva de propósito o PREFIXO original
+ * ("POP-", "Atr-", "IT-", "SEC-"), porque é dele que ~15 lugares do app
+ * dependem pra inferir o tipo de um documento (ex.: `id.startsWith(
+ * 'POP-')` em App.tsx) — só o final do ID muda, então nada disso quebra.
+ * A ACII mantém os IDs originais sem sufixo (dado real já em produção,
+ * não haveria por que mudar).
  */
 export async function seedDatabaseIfEmpty() {
   try {
     const companyId = getCurrentCompanyId();
+    const idSuffix = companyId === DEFAULT_COMPANY_ID ? '' : `-${companyId}`;
     const scoped = (col: string) => query(collection(db, col), where('companyId', '==', companyId));
 
     // Check if sectors are empty or missing any default sector
@@ -48,7 +49,8 @@ export async function seedDatabaseIfEmpty() {
     if (sectorsSnap.empty) {
       console.log(`Seeding sectors for company ${companyId}...`);
       for (const sector of initialSectors) {
-        await salvarDocumento('sectors', { ...sector, companyId }, sector.id);
+        const id = `${sector.id}${idSuffix}`;
+        await salvarDocumento('sectors', { ...sector, id, companyId }, id);
       }
     }
 
@@ -58,7 +60,8 @@ export async function seedDatabaseIfEmpty() {
     const atrsSnap = await getDocs(scoped('atrs'));
     if (atrsSnap.empty) {
       for (const atr of initialATRs) {
-        await salvarDocumento('atrs', { ...atr, companyId }, atr.id);
+        const id = `${atr.id}${idSuffix}`;
+        await salvarDocumento('atrs', { ...atr, id, companyId }, id);
       }
     }
 
@@ -66,7 +69,8 @@ export async function seedDatabaseIfEmpty() {
     const popsSnap = await getDocs(scoped('pops'));
     if (popsSnap.empty) {
       for (const pop of initialPOPs) {
-        await salvarDocumento('pops', { ...pop, companyId }, pop.id);
+        const id = `${pop.id}${idSuffix}`;
+        await salvarDocumento('pops', { ...pop, id, companyId }, id);
       }
     }
 
@@ -74,7 +78,8 @@ export async function seedDatabaseIfEmpty() {
     const itsSnap = await getDocs(scoped('its'));
     if (itsSnap.empty) {
       for (const it of initialITs) {
-        await salvarDocumento('its', { ...it, companyId }, it.id);
+        const id = `${it.id}${idSuffix}`;
+        await salvarDocumento('its', { ...it, id, companyId }, id);
       }
     }
 
@@ -86,11 +91,14 @@ export async function seedDatabaseIfEmpty() {
       // comentário grande em functions/index.js sobre por que isso
       // importa). Estas são só as credenciais INICIAIS de instalação;
       // o admin deve trocar a senha no primeiro acesso.
+      // username também ganha sufixo pra empresas que não a ACII — login é
+      // único no sistema INTEIRO, não só dentro da empresa (decisão
+      // registrada em functions/index.js, exports.createCompany).
       const adminHash = await hashPassword('admin');
       const collabHash = await hashPassword('Colaborador123');
       const defaultUsers: UserAccount[] = [
-        { id: '1', companyId, username: 'admin', name: 'Administrador Geral', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
-        { id: '2', companyId, username: 'colaborador', name: 'Colaborador Padrão', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
+        { id: `1${idSuffix}`, companyId, username: `admin${idSuffix}`, name: 'Administrador Geral', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
+        { id: `2${idSuffix}`, companyId, username: `colaborador${idSuffix}`, name: 'Colaborador Padrão', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
       ];
       for (const user of defaultUsers) {
         await salvarDocumento('users', user, user.id);

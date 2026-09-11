@@ -17,3 +17,9 @@ export const linkGoogleUserCallable = httpsCallable(functions, 'linkGoogleUser')
 // Define uma nova senha (troca própria ou reset por admin/gestor) sem
 // nunca gravar texto puro — só o hash.
 export const setPasswordCallable = httpsCallable(functions, 'setPassword');
+
+// Cadastra uma empresa nova (tenant) + sua primeira conta admin — Fase 3
+// (onboarding). Só aceita quando quem chama está logado com o e-mail
+// Google do dono da plataforma (ver RUNTIME_ADMIN_EMAIL em
+// functions/index.js); qualquer outro chamador recebe permission-denied.
+export const createCompanyCallable = httpsCallable(functions, 'createCompany');

@@ -522,3 +522,115 @@ exports.setPassword = onCall({ region: REGION }, async (request) => {
     throw new HttpsError('internal', `Erro ao alterar senha [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// createCompany — Fase 3 (onboarding)
+// ─────────────────────────────────────────────────────────────────────
+// O prompt original pede um fluxo de criação de empresa "mesmo que
+// inicialmente seja um cadastro feito por mim [o dono do produto] como
+// admin, e não self-service público" — é exatamente isso: só quem está
+// logado com o e-mail Google do dono do produto (RUNTIME_ADMIN_EMAIL,
+// já usado hoje pra decidir quem vira admin "de fábrica" no login Google)
+// pode chamar esta function. Nenhum admin de empresa cliente consegue
+// criar outra empresa por aqui — isso abriria a porta pra qualquer
+// cliente criar tenants à vontade, fora do controle comercial.
+//
+// Cria, na mesma escrita: o documento companies/{companyId} e a primeira
+// conta (admin) dessa empresa em users/{userId}. auth_links só é criado
+// no primeiro LOGIN dessa conta nova (mesmo fluxo de sempre, via
+// exports.login) — não há sessão do Firebase Auth pra vincular ainda
+// nesse momento, só o cadastro em si.
+exports.createCompany = onCall({ region: REGION }, async (request) => {
+  try {
+    const callerEmail = (request.auth?.token?.email || '').toLowerCase();
+    if (!request.auth || callerEmail !== RUNTIME_ADMIN_EMAIL) {
+      throw new HttpsError('permission-denied', 'Só o administrador da plataforma pode cadastrar uma nova empresa.');
+    }
+
+    const companyName = String(request.data?.companyName || '').trim();
+    const adminName = String(request.data?.adminName || '').trim();
+    const adminUsernameInput = String(request.data?.adminUsername || '').trim();
+    const adminPassword = String(request.data?.adminPassword || '');
+
+    if (!companyName || !adminName || !adminUsernameInput || !adminPassword) {
+      throw new HttpsError('invalid-argument', 'Preencha nome da empresa, nome do admin, login e senha inicial.');
+    }
+    if (adminPassword.length < 4) {
+      throw new HttpsError('invalid-argument', 'A senha inicial precisa ter pelo menos 4 caracteres.');
+    }
+
+    const firestore = db();
+
+    // Slug do companyId a partir do nome da empresa (ex.: "Comércio ABC
+    // Ltda" -> "comercio-abc-ltda"), com sufixo numérico se já existir.
+    const baseSlug = companyName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 40) || 'empresa';
+
+    let companyId = baseSlug;
+    let suffix = 1;
+    while ((await firestore.collection('companies').doc(companyId).get()).exists) {
+      suffix += 1;
+      companyId = `${baseSlug}-${suffix}`;
+    }
+
+    // Login (username) continua único no SISTEMA INTEIRO, não só dentro da
+    // empresa — decisão deliberada, não esquecimento: o login por CPF/
+    // usuário ainda não tem seletor de empresa (ver comentário na Fase 1
+    // do prompt), então dois usuários com o mesmo login em empresas
+    // diferentes seriam ambíguos pra Cloud Function `login` descobrir qual
+    // conta é qual. Resolver isso de verdade é adicionar um seletor de
+    // empresa na tela de login — mudança de UX que fica pra depois desta
+    // fase, não escondida: só avisando aqui de novo, no lugar onde o
+    // problema é checado.
+    const adminUsernameLower = adminUsernameInput.toLowerCase();
+    const existingUsername = await firestore.collection('users').where('username', '==', adminUsernameLower).limit(1).get();
+    if (!existingUsername.empty) {
+      throw new HttpsError('already-exists', `O login "${adminUsernameInput}" já está em uso por outra conta no sistema. Escolha outro.`);
+    }
+
+    const now = new Date();
+
+    await firestore.collection('companies').doc(companyId).set({
+      id: companyId,
+      name: companyName,
+      status: 'ativo',
+      createdAt: now.toISOString()
+    });
+
+    const passwordHash = sha256Hex(adminPassword);
+    const newUserRef = firestore.collection('users').doc();
+    await newUserRef.set({
+      id: newUserRef.id,
+      companyId,
+      username: adminUsernameLower,
+      name: adminName,
+      passwordHash,
+      role: 'admin',
+      status: 'Ativo',
+      accountStatus: 'ativo',
+      primeiro_acesso: true,
+      firstAccess: true,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    logger.info(`Empresa criada por ${callerEmail}: companyId=${companyId}, admin=${adminUsernameLower}`);
+
+    return {
+      success: true,
+      companyId,
+      companyName,
+      adminUserId: newUserRef.id,
+      adminUsername: adminUsernameLower
+    };
+  } catch (err) {
+    logger.error('❌ ERRO NA FUNÇÃO CREATECOMPANY:', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', `Erro ao criar empresa [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
+  }
+});

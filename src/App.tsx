@@ -59,6 +59,7 @@ import GoogleWorkspaceManager from './components/GoogleWorkspaceManager';
 import SplashScreen from './components/SplashScreen';
 import DocumentsView from './components/DocumentsView';
 import ACIILogo from './components/ACIILogo';
+import CompanyOnboardingModal from './components/CompanyOnboardingModal';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -92,6 +93,15 @@ import { useItsState } from './hooks/useItsState';
 import { useSectorsState } from './hooks/useSectorsState';
 import { useEmployeesState } from './hooks/useEmployeesState';
 import { DEFAULT_COMPANY_ID, setCurrentCompanyId } from './lib/tenant';
+
+// Fase 3 (onboarding): só este e-mail Google pode abrir o cadastro de
+// nova empresa — precisa bater com RUNTIME_ADMIN_EMAIL em
+// functions/index.js (mesmo cuidado de duplicação já usado pra
+// FIRESTORE_DATABASE_ID/PROJECT_ID entre cliente e servidor neste
+// projeto). Esconder o botão aqui é só conveniência de UI: quem garante
+// a segurança de verdade é a própria Cloud Function `createCompany`,
+// que confere isso de novo no servidor.
+const PLATFORM_OWNER_EMAIL = 'marciper@gmail.com';
 
 export { getReviewStatus };
 
@@ -174,6 +184,12 @@ export default function App() {
   }, [companyId]);
 
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isCompanyOnboardingOpen, setIsCompanyOnboardingOpen] = useState(false);
+  // auth.currentUser reflete a sessão do Firebase Auth (anônima OU
+  // Google) — só quando é Google é que carrega e-mail de verdade. currentUser
+  // (UserAccount) não tem e-mail de login aqui, por isso a checagem é
+  // separada, direto na sessão do Firebase Auth.
+  const isPlatformOwner = (auth.currentUser?.email || '').toLowerCase() === PLATFORM_OWNER_EMAIL;
 
   const [profilePermissions, rawSetProfilePermissions] = useState<ProfilePermissions>(() => {
     const saved = localStorage.getItem('ms-profile-permissions');
@@ -695,9 +711,19 @@ export default function App() {
         // Check if employee already has a linked user account
         const hasAccount = currentUsers.some(u => u.employeeId === emp.id);
         if (!hasAccount) {
-          // Create standard account: username = normalized name, password = '123'
-          const baseUsername = normalizeUsername(emp.name);
-          // Ensure username is unique
+          // Create standard account: username = normalized name, password = '123'.
+          // Fase 3 (multiempresa de verdade): login é único no SISTEMA
+          // INTEIRO (ver comentário em functions/index.js, exports.
+          // createCompany), mas esta checagem só enxerga os usuários JÁ
+          // CARREGADOS da própria empresa (`currentUsers` vem do estado
+          // `users`, que desde a Fase 1 só assina a própria empresa). Pra
+          // não colidir por baixo dos panos com "joao.silva" de OUTRA
+          // empresa (nome comum, bem provável de repetir), empresas que
+          // não a ACII levam o companyId como sufixo de propósito — mesma
+          // lógica do seed em seedDatabaseIfEmpty (src/lib/firebaseSync.ts).
+          const usernameSuffix = companyId && companyId !== DEFAULT_COMPANY_ID ? `.${companyId}` : '';
+          const baseUsername = `${normalizeUsername(emp.name)}${usernameSuffix}`;
+          // Ensure username is unique dentro do que já vemos
           let finalUsername = baseUsername;
           let counter = 1;
           while (currentUsers.some(u => u.username.toLowerCase() === finalUsername.toLowerCase())) {
@@ -1730,6 +1756,18 @@ export default function App() {
                 >
                   <KeyRound className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Senhas</span>
+                </button>
+              )}
+
+              {/* Fase 3 (onboarding) — só aparece pro dono da plataforma logado via Google */}
+              {isPlatformOwner && (
+                <button
+                  onClick={() => setIsCompanyOnboardingOpen(true)}
+                  className="px-2.5 py-1.5 bg-violet-600 hover:bg-violet-500 text-white border border-violet-700 rounded-lg text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer font-bold shadow-[0_0_10px_rgba(139,92,246,0.25)]"
+                  title="Cadastrar Nova Empresa"
+                >
+                  <Building className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Empresas</span>
                 </button>
               )}
 
@@ -3857,6 +3895,11 @@ export default function App() {
           setCurrentView('portal');
           setIsAdminModalOpen(false);
         }}
+      />
+
+      <CompanyOnboardingModal
+        isOpen={isCompanyOnboardingOpen}
+        onClose={() => setIsCompanyOnboardingOpen(false)}
       />
     </div>
   );
