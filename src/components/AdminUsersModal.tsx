@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT } from '../types';
 import { dbSaveUserAccount, dbDeleteUserAccount } from '../lib/firebaseSync';
-import { getDefaultInitialPassword, hashPassword } from '../lib/userManagement';
+import { getDefaultInitialPassword, hashPassword, migrarERemoverSenhasEmTextoPuro } from '../lib/userManagement';
 
 interface DocumentLogEntry {
   docId: string;
@@ -154,6 +154,22 @@ export default function AdminUsersModal({
   const [autoLinkDocs, setAutoLinkDocs] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isCleaningPasswords, setIsCleaningPasswords] = useState<boolean>(false);
+
+  const handleCleanPlaintextPasswords = async () => {
+    try {
+      setIsCleaningPasswords(true);
+      setError(null);
+      const res = await migrarERemoverSenhasEmTextoPuro();
+      setSuccess(`Limpeza de segurança concluída com sucesso! ${res.senhasRemovidas} senha(s) em texto puro removidas e ${res.hashesGerados} hash(es) SHA-256 gerados no banco.`);
+      setTimeout(() => setSuccess(null), 6000);
+    } catch (err: any) {
+      console.error('Erro ao limpar senhas:', err);
+      setError(err?.message || 'Falha ao executar limpeza de senhas.');
+    } finally {
+      setIsCleaningPasswords(false);
+    }
+  };
 
   // Temporary passwords being edited before saving
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({});
@@ -1626,18 +1642,32 @@ export default function AdminUsersModal({
                   </form>
                 </motion.div>
               ) : (
-                <div className="flex justify-between items-center">
+                <div className="flex flex-wrap justify-between items-center gap-2">
                   <span className="text-2xs font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
                     Lista de Credenciais Concedidas ({users.length})
                   </span>
-                  <button
-                onClick={() => setIsAddingNew(true)}
-                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>+ Conceder Nova Senha</span>
-              </button>
-            </div>
+                  <div className="flex items-center gap-2">
+                    {currentUser.role === 'admin' && (
+                      <button
+                        type="button"
+                        onClick={handleCleanPlaintextPasswords}
+                        disabled={isCleaningPasswords}
+                        className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        title="Executa a migração de segurança: remove qualquer campo de senha em texto puro no Firestore e garante hashes SHA-256"
+                      >
+                        <ShieldCheck className={`w-3.5 h-3.5 ${isCleaningPasswords ? 'animate-spin' : ''}`} />
+                        <span>{isCleaningPasswords ? 'Limpando senhas...' : 'Limpar Senhas em Texto Puro'}</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setIsAddingNew(true)}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>+ Conceder Nova Senha</span>
+                    </button>
+                  </div>
+                </div>
           )}
 
           {/* User List table */}

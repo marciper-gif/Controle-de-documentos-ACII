@@ -118,3 +118,51 @@ export async function resetarSenha(userId: string, name?: string, cpf?: string) 
     throw new Error(error?.message || "Falha ao resetar a senha. Tente novamente.");
   }
 }
+
+/**
+ * Limpeza de segurança — executável por Administrador.
+ * Percorre todos os usuários no Firestore, calcula passwordHash (SHA-256)
+ * se estiver faltando, e remove o campo `password` (texto puro) do documento.
+ */
+export async function migrarERemoverSenhasEmTextoPuro(): Promise<{
+  total: number;
+  senhasRemovidas: number;
+  hashesGerados: number;
+}> {
+  const { collection, getDocs, updateDoc, doc, deleteField } = await import('firebase/firestore');
+  const { db } = await import('./firebase');
+
+  const snapshot = await getDocs(collection(db, 'users'));
+  let hashesGerados = 0;
+  let senhasRemovidas = 0;
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data();
+    const hasPlainPassword = typeof data.password === 'string' && data.password.length > 0;
+    const hasHash = typeof data.passwordHash === 'string' && data.passwordHash.length > 0;
+
+    if (!hasPlainPassword && hasHash) continue;
+
+    const updates: Record<string, any> = {};
+
+    if (!hasHash) {
+      if (hasPlainPassword) {
+        updates.passwordHash = await hashPassword(data.password);
+        hashesGerados++;
+      } else {
+        continue;
+      }
+    }
+
+    if (hasPlainPassword) {
+      updates.password = deleteField();
+      senhasRemovidas++;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await updateDoc(doc(db, 'users', docSnap.id), updates);
+    }
+  }
+
+  return { total: snapshot.size, senhasRemovidas, hashesGerados };
+}
