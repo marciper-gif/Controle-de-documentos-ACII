@@ -72,6 +72,38 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
+    // Gestor de setor — portado da branch claude/acii-saas-multitenant-
+    // fxrohc. ANTES: qualquer gestor da empresa podia criar/editar/apagar
+    // POP, ATR, IT ou documento guardado de QUALQUER setor da empresa —
+    // as regras só checavam isAdmin()/isGestor(), nunca o setor. Admin
+    // continua mexendo em tudo da empresa; gestor só no PRÓPRIO setor.
+    //
+    // Duas variantes, porque os dados guardam o setor de duas formas
+    // diferentes nesta base de código (não uniformizado ainda):
+    //   - guarded_documents.sectorId é o ID de verdade (SectorData.id) —
+    //     o mesmo formato de auth_links.sectorId, então compara direto.
+    //   - ATR/POP/IT.sector é o NOME de exibição do setor (tipo "RH"),
+    //     não o ID — herdado de antes de existir multiempresa. Por isso
+    //     canManageSectorByName resolve o NOME do setor do gestor (via
+    //     get() em sectors/{currentSectorId()}) antes de comparar. Um
+    //     `get()` a mais por checagem, dentro do limite de leituras por
+    //     avaliação de regra do Firestore.
+    // ─────────────────────────────────────────────────────────────────
+    function canManageSectorId(sectorId) {
+      return isAdmin() || (isGestor() && currentSectorId() != null && currentSectorId() == sectorId);
+    }
+
+    function currentSectorName() {
+      return (currentSectorId() != null && exists(/databases/$(database)/documents/sectors/$(currentSectorId())))
+        ? get(/databases/$(database)/documents/sectors/$(currentSectorId())).data.name
+        : null;
+    }
+
+    function canManageSectorByName(sectorName) {
+      return isAdmin() || (isGestor() && currentSectorName() != null && currentSectorName() == sectorName);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
     // auth_links: cada sessão só enxerga o PRÓPRIO vínculo, e não pode
     // mais escrevê-lo diretamente. Antes disso, uma sessão anônima
     // (criada automaticamente pra QUALQUER visitante, antes até de
@@ -127,23 +159,42 @@ service cloud.firestore {
       allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
     }
 
-    // Documentos do sistema (POPs, ATRs, ITs) — mesmo padrão de isolamento.
+    // Documentos do sistema (POPs, ATRs, ITs) — mesmo padrão de isolamento
+    // entre empresas, mais a restrição de setor do gestor (ver
+    // canManageSectorByName acima). Update trava o setor NOS DOIS lados
+    // (o valor novo E o valor antigo) — impede um gestor "levar" um
+    // documento do próprio setor pra outro setor que ele não gerencia.
     match /pops/{popId} {
       allow read: if isSameCompany(resource.data.companyId);
-      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
-      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
+      allow create: if isSameCompany(request.resource.data.companyId) &&
+        canManageSectorByName(request.resource.data.get('sector', null));
+      allow update: if isSameCompany(resource.data.companyId) &&
+        canManageSectorByName(request.resource.data.get('sector', null)) &&
+        canManageSectorByName(resource.data.get('sector', null));
+      allow delete: if isSameCompany(resource.data.companyId) &&
+        canManageSectorByName(resource.data.get('sector', null));
     }
 
     match /atrs/{atrId} {
       allow read: if isSameCompany(resource.data.companyId);
-      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
-      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
+      allow create: if isSameCompany(request.resource.data.companyId) &&
+        canManageSectorByName(request.resource.data.get('sector', null));
+      allow update: if isSameCompany(resource.data.companyId) &&
+        canManageSectorByName(request.resource.data.get('sector', null)) &&
+        canManageSectorByName(resource.data.get('sector', null));
+      allow delete: if isSameCompany(resource.data.companyId) &&
+        canManageSectorByName(resource.data.get('sector', null));
     }
 
     match /its/{itId} {
       allow read: if isSameCompany(resource.data.companyId);
-      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
-      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
+      allow create: if isSameCompany(request.resource.data.companyId) &&
+        canManageSectorByName(request.resource.data.get('sector', null));
+      allow update: if isSameCompany(resource.data.companyId) &&
+        canManageSectorByName(request.resource.data.get('sector', null)) &&
+        canManageSectorByName(resource.data.get('sector', null));
+      allow delete: if isSameCompany(resource.data.companyId) &&
+        canManageSectorByName(resource.data.get('sector', null));
     }
 
     // Funcionários
@@ -212,9 +263,8 @@ service cloud.firestore {
     // Módulo de guarda de documentos (guarda controlada por setor, dentro
     // da própria empresa). Leitura: admin da empresa, ou setor dono do
     // documento, ou setor listado em extraViewerSectorIds — sempre dentro
-    // da mesma empresa. Criação: admin/gestor da própria empresa.
-    // Edição/eliminação: admin, ou gestor do próprio setor do documento,
-    // sempre dentro da mesma empresa.
+    // da mesma empresa. Criação/edição/eliminação: admin, ou gestor do
+    // próprio setor do documento, sempre dentro da mesma empresa.
     // ─────────────────────────────────────────────────────────────────
     match /guarded_documents/{docId} {
       allow read: if isSameCompany(resource.data.companyId) && (
@@ -224,12 +274,14 @@ service cloud.firestore {
             && currentSectorId() in resource.data.extraViewerSectorIds)
       );
 
-      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
+      // Criação agora também trava no próprio setor do gestor — antes só
+      // update/delete tinham essa trava (mesma inconsistência corrigida
+      // na fxrohc: a criação ficava mais aberta que a própria edição).
+      allow create: if isSameCompany(request.resource.data.companyId) &&
+        canManageSectorId(request.resource.data.get('sectorId', null));
 
-      allow update, delete: if isSameCompany(resource.data.companyId) && (
-        isAdmin()
-        || (isGestor() && currentSectorId() == resource.data.sectorId)
-      );
+      allow update, delete: if isSameCompany(resource.data.companyId) &&
+        canManageSectorId(resource.data.get('sectorId', null));
     }
   }
 }
