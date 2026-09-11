@@ -58,6 +58,7 @@ import SectorManager from './components/SectorManager';
 import GoogleWorkspaceManager from './components/GoogleWorkspaceManager';
 import SplashScreen from './components/SplashScreen';
 import DocumentsView from './components/DocumentsView';
+import ACIILogo from './components/ACIILogo';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -81,183 +82,16 @@ import {
   dbDeleteUserAccount,
   dbSavePermissions
 } from './lib/firebaseSync';
+import { getReviewStatus } from './utils/documentReview';
+import { ViewType, DocType, VIEW_PATHS, computeAppPath, parseAppPath } from './lib/appRouting';
+import { useTheme } from './hooks/useTheme';
+import { useAtrsState } from './hooks/useAtrsState';
+import { usePopsState } from './hooks/usePopsState';
+import { useItsState } from './hooks/useItsState';
+import { useSectorsState } from './hooks/useSectorsState';
+import { useEmployeesState } from './hooks/useEmployeesState';
 
-
-/**
- * Helper to check if a document is pending review
- * A document is pending review if it's been more than 365 days since the last review (or emission)
- */
-export function getReviewStatus(doc: { emissionDate: string; revisionDate?: string }) {
-  const dateStr = doc.revisionDate || doc.emissionDate;
-  if (!dateStr) return { isPending: false, daysSinceLastReview: 0, daysOverdue: 0, lastReviewDateStr: '' };
-
-  try {
-    const parts = dateStr.split('/');
-    if (parts.length !== 3) return { isPending: false, daysSinceLastReview: 0, daysOverdue: 0, lastReviewDateStr: dateStr };
-    
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1; // 0-indexed month
-    const year = parseInt(parts[2], 10);
-
-    const lastReviewDate = new Date(year, month, day);
-    // Standardize to midnight for pure day comparison
-    lastReviewDate.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Difference in milliseconds
-    const diffTime = today.getTime() - lastReviewDate.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    
-    // Revision interval: 1 year (365 days)
-    const intervalDays = 365;
-    const isPending = diffDays >= intervalDays;
-    const daysOverdue = diffDays - intervalDays;
-
-    return {
-      isPending,
-      daysSinceLastReview: diffDays,
-      daysOverdue: isPending ? daysOverdue : 0,
-      lastReviewDateStr: dateStr,
-      yearsPassed: (diffDays / 365).toFixed(1)
-    };
-  } catch (e) {
-    return { isPending: false, daysSinceLastReview: 0, daysOverdue: 0, lastReviewDateStr: dateStr };
-  }
-}
-
-function ACIILogo({ className = "w-full h-auto" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 280 110" className={className} xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(5, 5)">
-        {/* ACII Bold Green Text */}
-        <text
-          x="0"
-          y="50"
-          style={{
-            fontFamily: '"Space Grotesk", "Inter", sans-serif',
-            fontSize: '56px',
-            fontWeight: 900,
-            letterSpacing: '-2px'
-          }}
-          className="fill-emerald-600 dark:fill-emerald-400 font-black"
-        >
-          ACII
-        </text>
-
-        {/* Shutter Swirl Icon */}
-        <g transform="translate(145, 2)">
-          {/* Green rounded background box */}
-          <rect width="52" height="52" rx="10" className="fill-emerald-600 dark:fill-emerald-500" />
-          
-          {/* Outer circle layout */}
-          <circle cx="26" cy="26" r="21" fill="none" stroke="#ffffff" strokeWidth="2.5" opacity="0.3" />
-          
-          {/* Golden Yellow sun center circle */}
-          <circle cx="26" cy="26" r="11" fill="#fbc02d" />
-          
-          {/* Curved white/green swirl blades / shutter arcs */}
-          <path d="M 26,5 A 21,21 0 0,1 47,26 L 37,26 A 11,11 0 0,0 26,15 Z" fill="#ffffff" />
-          <path d="M 47,26 A 21,21 0 0,1 26,47 L 26,37 A 11,11 0 0,0 37,26 Z" fill="#ffffff" />
-          <path d="M 26,47 A 21,21 0 0,1 5,26 L 15,26 A 11,11 0 0,0 26,37 Z" fill="#ffffff" />
-          <path d="M 5,26 A 21,21 0 0,1 26,5 L 26,15 A 11,11 0 0,0 15,26 Z" fill="#ffffff" />
-        </g>
-
-        {/* Subtitle Lines */}
-        <text
-          x="0"
-          y="74"
-          style={{
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '11px',
-            fontWeight: 800,
-            letterSpacing: '1px'
-          }}
-          className="fill-slate-800 dark:fill-slate-200 font-bold"
-        >
-          ASSOCIAÇÃO COMERCIAL
-        </text>
-        <text
-          x="0"
-          y="87"
-          style={{
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '11px',
-            fontWeight: 800,
-            letterSpacing: '1px'
-          }}
-          className="fill-slate-800 dark:fill-slate-200 font-bold"
-        >
-          INDUSTRIAL E SERVIÇOS
-        </text>
-        <text
-          x="0"
-          y="100"
-          style={{
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '11px',
-            fontWeight: 800,
-            letterSpacing: '1px'
-          }}
-          className="fill-slate-800 dark:fill-slate-200 font-bold"
-        >
-          DE IMPERATRIZ
-        </text>
-      </g>
-    </svg>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Navegação por URL
-// ─────────────────────────────────────────────────────────────────────
-// currentView/selectedDocId/selectedDocType continuam sendo o estado
-// "de verdade" do app (nenhum dos ~60 lugares que já chamam
-// setCurrentView/setSelectedDocId/setSelectedDocType precisou mudar).
-// O que muda: dois efeitos (perto da declaração desses estados, mais
-// abaixo) mantêm a URL do navegador sincronizada com esse estado nos
-// dois sentidos — clicar numa aba ou abrir um documento empurra uma
-// URL nova pro histórico do navegador (state → URL), e usar os botões
-// voltar/avançar do navegador (ou carregar um link direto) atualiza
-// esse mesmo estado a partir da URL (URL → state). Isso resolve os
-// dois problemas relatados: o botão voltar do navegador passa a
-// funcionar de verdade, e não existe mais como o documento aberto e a
-// aba atual ficarem "dessincronizados" entre si — os dois efeitos
-// sempre convergem pro mesmo valor.
-type ViewType = 'portal' | 'employees' | 'sectors' | 'documentos' | 'workspace';
-type DocType = 'pop' | 'atr' | 'it';
-
-const VIEW_PATHS: Record<Exclude<ViewType, 'portal'>, string> = {
-  employees: '/employees',
-  sectors: '/sectors',
-  documentos: '/documentos',
-  workspace: '/workspace'
-};
-
-/** Estado do app → URL correspondente. */
-function computeAppPath(currentView: ViewType, selectedDocType: DocType, selectedDocId: string): string {
-  if (currentView === 'portal') {
-    return selectedDocId ? `/portal/${selectedDocType}/${encodeURIComponent(selectedDocId)}` : '/portal';
-  }
-  return VIEW_PATHS[currentView];
-}
-
-/** URL → estado do app correspondente (usado tanto na carga inicial quanto no botão voltar/avançar). */
-function parseAppPath(pathname: string): { currentView: ViewType; selectedDocType: DocType; selectedDocId: string } {
-  const parts = pathname.split('/').filter(Boolean);
-  const first = parts[0];
-
-  if (first === 'employees' || first === 'sectors' || first === 'documentos' || first === 'workspace') {
-    return { currentView: first, selectedDocType: 'pop', selectedDocId: '' };
-  }
-
-  // '/', '/portal', '/portal/:type/:id' ou qualquer caminho desconhecido caem aqui como padrão.
-  const [, docType, docId] = parts; // parts[0] seria 'portal'
-  if ((docType === 'pop' || docType === 'atr' || docType === 'it') && docId) {
-    return { currentView: 'portal', selectedDocType: docType, selectedDocId: decodeURIComponent(docId) };
-  }
-  return { currentView: 'portal', selectedDocType: 'pop', selectedDocId: '' };
-}
+export { getReviewStatus };
 
 export default function App() {
   const navigate = useNavigate();
@@ -466,207 +300,21 @@ export default function App() {
   };
 
   // Theme Management
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('ms-theme');
-    return (saved as 'light' | 'dark') || 'light';
-  });
+  const [theme, setTheme] = useTheme();
 
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('ms-theme', theme);
-  }, [theme]);
-
-  // Documents Management (Predefined + Local Drafts)
-  const [atrs, rawSetATRs] = useState<ATR[]>(() => {
-    const saved = localStorage.getItem('ms-atrs');
-    const initialAtrsWithComercial = initialATRs.map(atr => {
-      if (atr.id === 'Atr-014' || atr.id === 'Atr-016' || atr.id === 'Atr-018') {
-        return { ...atr, sector: 'Comercial' };
-      }
-      return atr;
-    });
-
-    if (!saved) return initialAtrsWithComercial;
-    try {
-      const parsed = JSON.parse(saved) as ATR[];
-      const migrated = parsed.map(atr => {
-        if (atr.id === 'Atr-014' || atr.id === 'Atr-016' || atr.id === 'Atr-018') {
-          return { ...atr, sector: 'Comercial' };
-        }
-        return atr;
-      });
-      const initialIds = new Set(initialAtrsWithComercial.map(x => x.id));
-      const customAtrs = migrated.filter((x: any) => !initialIds.has(x.id));
-      return [...initialAtrsWithComercial, ...customAtrs];
-    } catch (e) {
-      return initialAtrsWithComercial;
-    }
-  });
-
-  const setATRs = useCallback((val: React.SetStateAction<ATR[]>) => {
-    rawSetATRs((prev) => {
-      const computed = typeof val === 'function' ? val(prev) : val;
-      computed.forEach(item => {
-        const original = prev.find(p => p.id === item.id);
-        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-          dbSaveATR(item);
-        }
-      });
-      return computed;
-    });
-  }, []);
-
-  const [pops, rawSetPOPs] = useState<POP[]>(() => {
-    const saved = localStorage.getItem('ms-pops');
-    if (!saved) return initialPOPs;
-    try {
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed) || parsed.length === 0) return initialPOPs;
-      const initialMap = new Map<string, POP>();
-      initialPOPs.forEach(p => initialMap.set(p.id, p));
-      parsed.forEach((p: POP) => {
-        if (p && p.id) initialMap.set(p.id, p);
-      });
-      return Array.from(initialMap.values());
-    } catch (e) {
-      return initialPOPs;
-    }
-  });
-
-  const setPOPs = useCallback((val: React.SetStateAction<POP[]>) => {
-    rawSetPOPs((prev) => {
-      const computed = typeof val === 'function' ? val(prev) : val;
-      computed.forEach(item => {
-        const original = prev.find(p => p.id === item.id);
-        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-          dbSavePOP(item);
-        }
-      });
-      return computed;
-    });
-  }, []);
-
-  const [its, rawSetITs] = useState<IT[]>(() => {
-    const saved = localStorage.getItem('ms-its');
-    if (!saved) return initialITs;
-    try {
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed) || parsed.length === 0) return initialITs;
-      const initialMap = new Map<string, IT>();
-      initialITs.forEach(i => initialMap.set(i.id, i));
-      parsed.forEach((i: IT) => {
-        if (i && i.id) initialMap.set(i.id, i);
-      });
-      return Array.from(initialMap.values());
-    } catch (e) {
-      return initialITs;
-    }
-  });
-
-  const setITs = useCallback((val: React.SetStateAction<IT[]>) => {
-    rawSetITs((prev) => {
-      const computed = typeof val === 'function' ? val(prev) : val;
-      computed.forEach(item => {
-        const original = prev.find(p => p.id === item.id);
-        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-          dbSaveIT(item);
-        }
-      });
-      return computed;
-    });
-  }, []);
-
-  // Save changes to LocalStorage
-  useEffect(() => {
-    localStorage.setItem('ms-atrs', JSON.stringify(atrs));
-  }, [atrs]);
-
-  useEffect(() => {
-    localStorage.setItem('ms-pops', JSON.stringify(pops));
-  }, [pops]);
-
-  useEffect(() => {
-    localStorage.setItem('ms-its', JSON.stringify(its));
-  }, [its]);
-
-  // Dynamic sectors state
-  const [sectors, rawSetSectors] = useState<SectorData[]>(() => {
-    const saved = localStorage.getItem('ms-sectors');
-    if (!saved) return initialSectors;
-    try {
-      const parsed: SectorData[] = JSON.parse(saved);
-      const map = new Map<string, SectorData>();
-      initialSectors.forEach(s => map.set(s.id, s));
-      parsed.forEach(s => {
-        const matchingInit = initialSectors.find(i => i.id === s.id || i.name.toLowerCase() === s.name.toLowerCase());
-        if (matchingInit) {
-          map.set(matchingInit.id, {
-            ...s,
-            id: matchingInit.id,
-            description: s.description && s.description.length > matchingInit.description.length ? s.description : matchingInit.description
-          });
-        } else {
-          map.set(s.id, s);
-        }
-      });
-      return Array.from(map.values());
-    } catch (e) {
-      return initialSectors;
-    }
-  });
-
-  const setSectors = useCallback((val: React.SetStateAction<SectorData[]>) => {
-    rawSetSectors((prev) => {
-      const computed = typeof val === 'function' ? val(prev) : val;
-      computed.forEach(item => {
-        const original = prev.find(p => p.id === item.id);
-        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-          dbSaveSector(item);
-        }
-      });
-      return computed;
-    });
-  }, []);
+  // Documents Management (Predefined + Local Drafts) e Setores: cada um
+  // com estado + persistência em localStorage + sincronização em tempo
+  // real com o Firestore isolados no próprio hook (ver src/hooks/).
+  const [atrs, setATRs] = useAtrsState(authReady);
+  const [pops, setPOPs] = usePopsState(authReady);
+  const [its, setITs] = useItsState(authReady);
+  const [sectors, setSectors] = useSectorsState(authReady);
 
   // Dynamic employees state - only preserving employees created in the system
-  const [employees, rawSetEmployees] = useState<Employee[]>(() => {
-    const saved = localStorage.getItem('ms-employees');
-    if (!saved) return [];
-    try {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const [employees, setEmployees] = useEmployeesState(authReady);
 
-  const setEmployees = useCallback((val: React.SetStateAction<Employee[]>) => {
-    rawSetEmployees((prev) => {
-      const computed = typeof val === 'function' ? val(prev) : val;
-      computed.forEach(item => {
-        const original = prev.find(p => p.id === item.id);
-        if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
-          dbSaveEmployee(item).catch((err) => {
-            console.error('Falha ao salvar funcionário no Firestore:', err);
-            alert(`⚠️ Não foi possível salvar "${item.name}" no banco de dados. Verifique sua conexão com a internet e tente cadastrar novamente.`);
-          });
-        }
-      });
-      return computed;
-    });
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('ms-employees', JSON.stringify(employees));
-  }, [employees]);
-
-  useEffect(() => {
-    localStorage.setItem('ms-sectors', JSON.stringify(sectors));
-  }, [sectors]);
+  // (a persistência de `sectors` em localStorage já roda dentro de
+  // useSectorsState — esta era mais uma gravação idêntica, removida)
 
   // Documentos guardados (módulo de guarda de documentos): NÃO existe
   // mais um estado global aqui com a coleção inteira. Antes,
@@ -817,90 +465,11 @@ export default function App() {
     // Seed database if empty on load
     seedDatabaseIfEmpty();
 
-    // Real-time Sector subscription
-    const unsubSectors = onSnapshot(collection(db, 'sectors'), (snapshot) => {
-      const list: SectorData[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as SectorData);
-      });
-      const map = new Map<string, SectorData>();
-      initialSectors.forEach(s => map.set(s.id, s));
-      list.forEach(s => { if (s && s.id) map.set(s.id, s); });
-      const merged = Array.from(map.values());
-      rawSetSectors(merged);
-      localStorage.setItem('ms-sectors', JSON.stringify(merged));
-    }, (err) => {
-      console.warn("Firestore snapshot error (sectors):", err);
-    });
-
-   // Real-time Employee subscription
-    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
-      rawSetEmployees((prev) => {
-        const map = new Map<string, Employee>();
-        prev.forEach((e) => { if (e && e.id) map.set(e.id, e); });
-        snapshot.docChanges().forEach((change) => {
-          const data = change.doc.data() as Employee;
-          if (change.type === 'removed') {
-            map.delete(change.doc.id);
-          } else {
-            map.set(change.doc.id, data);
-          }
-        });
-        const merged = Array.from(map.values());
-        localStorage.setItem('ms-employees', JSON.stringify(merged));
-        return merged;
-      });
-    }, (err) => {
-      console.warn("Firestore snapshot error (employees):", err);
-    });
-
-    // Real-time ATRs subscription
-    const unsubATRs = onSnapshot(collection(db, 'atrs'), (snapshot) => {
-      const list: ATR[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as ATR);
-      });
-      const map = new Map<string, ATR>();
-      initialATRs.forEach(a => map.set(a.id, a));
-      list.forEach(a => { if (a && a.id) map.set(a.id, a); });
-      const merged = Array.from(map.values());
-      rawSetATRs(merged);
-      localStorage.setItem('ms-atrs', JSON.stringify(merged));
-    }, (err) => {
-      console.warn("Firestore snapshot error (atrs):", err);
-    });
-
-    // Real-time POPs subscription
-    const unsubPOPs = onSnapshot(collection(db, 'pops'), (snapshot) => {
-      const list: POP[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as POP);
-      });
-      const map = new Map<string, POP>();
-      initialPOPs.forEach(p => map.set(p.id, p));
-      list.forEach(p => { if (p && p.id) map.set(p.id, p); });
-      const merged = Array.from(map.values());
-      rawSetPOPs(merged);
-      localStorage.setItem('ms-pops', JSON.stringify(merged));
-    }, (err) => {
-      console.warn("Firestore snapshot error (pops):", err);
-    });
-
-    // Real-time ITs subscription
-    const unsubITs = onSnapshot(collection(db, 'its'), (snapshot) => {
-      const list: IT[] = [];
-      snapshot.forEach((doc) => {
-        list.push(doc.data() as IT);
-      });
-      const map = new Map<string, IT>();
-      initialITs.forEach(i => map.set(i.id, i));
-      list.forEach(i => { if (i && i.id) map.set(i.id, i); });
-      const merged = Array.from(map.values());
-      rawSetITs(merged);
-      localStorage.setItem('ms-its', JSON.stringify(merged));
-    }, (err) => {
-      console.warn("Firestore snapshot error (its):", err);
-    });
+    // Setores, funcionários, ATRs, POPs e ITs têm cada um seu próprio hook
+    // agora (ver src/hooks/) — estado, persistência em localStorage e
+    // assinatura do Firestore isolados, sem depender deste efeito nem de
+    // `currentUser` (só de `authReady`, que é tudo que eles realmente
+    // precisam).
 
     // guarded_documents NÃO tem mais um listener global aqui — ver
     // comentário na declaração do estado (removida), mais acima.
@@ -970,11 +539,6 @@ export default function App() {
     });
 
     return () => {
-      unsubSectors();
-      unsubEmployees();
-      unsubATRs();
-      unsubPOPs();
-      unsubITs();
       unsubUsers();
       unsubOwnUser();
       unsubPermissions();
@@ -1016,14 +580,9 @@ export default function App() {
     return false;
   }, [currentUser, employees, profilePermissions]);
 
-  // Save sectors and employees changes to LocalStorage
-  useEffect(() => {
-    localStorage.setItem('ms-sectors', JSON.stringify(sectors));
-  }, [sectors]);
-
-  useEffect(() => {
-    localStorage.setItem('ms-employees', JSON.stringify(employees));
-  }, [employees]);
+  // (persistência de `sectors` em localStorage já é feita dentro de
+  // useSectorsState; a de `employees` já roda logo acima, na declaração
+  // do estado — esta era uma segunda gravação idêntica, removida)
 
   // Helper to normalize username (e.g. "Amanda Bezerra" -> "amanda.bezerra")
   const normalizeUsername = (name: string): string => {
