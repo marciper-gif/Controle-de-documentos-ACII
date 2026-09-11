@@ -15,6 +15,21 @@ import { initialSectors } from '../data/sectors';
  * `companyId` (Fase 1 — multiempresa): filtra a assinatura do Firestore só
  * pelos setores da empresa da sessão atual. Sem ele (ainda carregando),
  * o hook não abre a assinatura — evita um instante lendo dado errado.
+ *
+ * FASE 2 — `initialSectors` (os 10 setores da ACII) deixou de ser
+ * injetado à força em todo carregamento. Antes, o próprio Firestore podia
+ * dizer "este setor foi excluído" e o app continuava mostrando ele assim
+ * mesmo, porque `initialSectors` sempre entrava primeiro no merge — na
+ * prática, a lista da ACII funcionava como um valor FIXO do sistema,
+ * exatamente o que a Fase 2 do prompt pede pra acabar ("migre a lista de
+ * setores da ACII para dados configuráveis da própria ACII como tenant,
+ * não como valor fixo do sistema"). Agora `initialSectors` só serve pra
+ * duas coisas: (1) o catálogo inicial copiado pro Firestore de uma
+ * empresa nova sem setor nenhum ainda (ver seedDatabaseIfEmpty em
+ * src/lib/firebaseSync.ts) e (2) o que a tela mostra por um instante,
+ * antes da primeira resposta do Firestore chegar, se não houver nada
+ * ainda no cache local. Depois que o Firestore responde uma vez, ELE é
+ * quem manda — inclusive pra remover um setor apagado.
  */
 export function useSectorsState(authReady: boolean, companyId: string | null) {
   const [sectors, rawSetSectors] = useState<SectorData[]>(() => {
@@ -22,21 +37,7 @@ export function useSectorsState(authReady: boolean, companyId: string | null) {
     if (!saved) return initialSectors;
     try {
       const parsed: SectorData[] = JSON.parse(saved);
-      const map = new Map<string, SectorData>();
-      initialSectors.forEach(s => map.set(s.id, s));
-      parsed.forEach(s => {
-        const matchingInit = initialSectors.find(i => i.id === s.id || i.name.toLowerCase() === s.name.toLowerCase());
-        if (matchingInit) {
-          map.set(matchingInit.id, {
-            ...s,
-            id: matchingInit.id,
-            description: s.description && s.description.length > matchingInit.description.length ? s.description : matchingInit.description
-          });
-        } else {
-          map.set(s.id, s);
-        }
-      });
-      return Array.from(map.values());
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialSectors;
     } catch (e) {
       return initialSectors;
     }
@@ -67,12 +68,12 @@ export function useSectorsState(authReady: boolean, companyId: string | null) {
       snapshot.forEach((doc) => {
         list.push(doc.data() as SectorData);
       });
-      const map = new Map<string, SectorData>();
-      initialSectors.forEach(s => map.set(s.id, s));
-      list.forEach(s => { if (s && s.id) map.set(s.id, s); });
-      const merged = Array.from(map.values());
-      rawSetSectors(merged);
-      localStorage.setItem('ms-sectors', JSON.stringify(merged));
+      // O Firestore é a fonte de verdade a partir daqui — sem mesclar com
+      // initialSectors (ver comentário acima). Uma coleção vazia de
+      // verdade (empresa sem nenhum setor cadastrado ainda) mostra lista
+      // vazia mesmo — é um estado real, não um bug a esconder.
+      rawSetSectors(list);
+      localStorage.setItem('ms-sectors', JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (sectors):", err);
     });

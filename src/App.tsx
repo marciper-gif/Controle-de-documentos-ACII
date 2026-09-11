@@ -44,7 +44,7 @@ import {
   Archive
 } from 'lucide-react';
 
-import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry } from './types';
+import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry, DocumentTypesSettings, DEFAULT_DOCUMENT_TYPES_SETTINGS } from './types';
 import { exportElementToPdf } from './utils/pdfExport';
 import { initialATRs } from './data/atrs';
 import { initialPOPs } from './data/pops';
@@ -80,7 +80,8 @@ import {
   dbDeleteIT,
   dbSaveUserAccount,
   dbDeleteUserAccount,
-  dbSavePermissions
+  dbSavePermissions,
+  dbSaveCompanyDocumentTypes
 } from './lib/firebaseSync';
 import { getReviewStatus } from './utils/documentReview';
 import { ViewType, DocType, VIEW_PATHS, computeAppPath, parseAppPath } from './lib/appRouting';
@@ -241,6 +242,34 @@ export default function App() {
     setProfilePermissions(newPerms);
     localStorage.setItem('ms-profile-permissions', JSON.stringify(newPerms));
   };
+
+  // Fase 2 (tipos de documento configuráveis por empresa): estado local
+  // com os defaults do produto (ATR/POP/IT/Documentos, todos habilitados)
+  // até o Firestore responder — ver listener em companies/{companyId}
+  // logo abaixo, e src/types.ts (DEFAULT_DOCUMENT_TYPES_SETTINGS).
+  const [documentTypesSettings, setDocumentTypesSettingsRaw] = useState<DocumentTypesSettings>(DEFAULT_DOCUMENT_TYPES_SETTINGS);
+
+  const handleUpdateDocumentTypesSettings = (settings: DocumentTypesSettings) => {
+    setDocumentTypesSettingsRaw(settings);
+    dbSaveCompanyDocumentTypes(settings, currentUser).catch(err => {
+      console.error('Falha ao salvar configuração de tipos de documento:', err);
+      alert('⚠️ Não foi possível salvar a configuração de tipos de documento. Verifique sua conexão e tente novamente.');
+    });
+  };
+
+  // Nome de exibição configurado pela empresa (Fase 2) pra cada tipo de
+  // documento — usado nos pontos "estruturais" da tela (chips de filtro,
+  // título do visualizador, seletor de tipo ao criar um documento). NÃO
+  // cobre ainda os textos dentro dos formulários de cada tipo (ex.: rótulo
+  // de campo "Objetivo da Instrução de Trabalho") — ver aviso na aba
+  // "Tipos de Documento" do painel admin.
+  const docTypeLabel = useCallback((key: 'pop' | 'atr' | 'it' | 'guarded'): string => {
+    return documentTypesSettings[key]?.label || DEFAULT_DOCUMENT_TYPES_SETTINGS[key].label;
+  }, [documentTypesSettings]);
+
+  const isDocTypeEnabled = useCallback((key: 'pop' | 'atr' | 'it' | 'guarded'): boolean => {
+    return documentTypesSettings[key]?.enabled ?? true;
+  }, [documentTypesSettings]);
 
 
   const userPermissions = useMemo(() => {
@@ -569,10 +598,28 @@ export default function App() {
       console.warn("Firestore snapshot error (permissions):", err);
     });
 
+    // Real-time Company subscription (Fase 2 — tipos de documento
+    // configuráveis). Documento sem `documentTypes` ainda (empresa nunca
+    // configurou nada) cai nos defaults do produto — mescla, não
+    // substitui, pra uma configuração PARCIAL salva não apagar os tipos
+    // que a empresa nunca chegou a mexer.
+    const unsubCompany = onSnapshot(doc(db, 'companies', companyId), (docSnap) => {
+      const saved = docSnap.exists() ? (docSnap.data()?.documentTypes as Partial<DocumentTypesSettings> | undefined) : undefined;
+      setDocumentTypesSettingsRaw({
+        atr: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.atr, ...saved?.atr },
+        pop: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.pop, ...saved?.pop },
+        it: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.it, ...saved?.it },
+        guarded: { ...DEFAULT_DOCUMENT_TYPES_SETTINGS.guarded, ...saved?.guarded }
+      });
+    }, (err) => {
+      console.warn("Firestore snapshot error (company):", err);
+    });
+
     return () => {
       unsubUsers();
       unsubOwnUser();
       unsubPermissions();
+      unsubCompany();
     };
   }, [currentUser, authReady, companyId]);
 
@@ -863,6 +910,15 @@ export default function App() {
   // Form Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formDocType, setFormDocType] = useState<'pop' | 'atr' | 'it'>('pop');
+
+  // Fase 2 — segurança contra o tipo selecionado no modal de criação ficar
+  // "preso" num tipo que a empresa acabou de desativar (o cartão some do
+  // seletor, mas sem isto o formDocType continuaria valendo por baixo).
+  useEffect(() => {
+    if (isDocTypeEnabled(formDocType)) return;
+    const fallback = (['pop', 'atr', 'it'] as const).find(t => isDocTypeEnabled(t));
+    if (fallback) setFormDocType(fallback);
+  }, [documentTypesSettings, formDocType, isDocTypeEnabled]);
   const [editingId, setFormEditingId] = useState<string | null>(null);
   const [initialContentSignature, setInitialContentSignature] = useState<string>('');
 
@@ -1604,6 +1660,7 @@ export default function App() {
                 </button>
               )}
 
+              {isDocTypeEnabled('guarded') && (
               <button
                 onClick={() => {
                   setCurrentView('documentos');
@@ -1623,8 +1680,9 @@ export default function App() {
                   />
                 )}
                 <Archive className="w-3.5 h-3.5 z-10" />
-                <span className="z-10">Documentos</span>
+                <span className="z-10">{docTypeLabel('guarded')}</span>
               </button>
+              )}
 
               <button
                 onClick={() => {
@@ -1985,7 +2043,9 @@ export default function App() {
               <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tipo:</span>
               <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800">
-                {(['Todos', 'POP', 'ATR', 'IT'] as const).map(type => (
+                {(['Todos', 'POP', 'ATR', 'IT'] as const)
+                  .filter(type => type === 'Todos' || isDocTypeEnabled(type.toLowerCase() as 'pop' | 'atr' | 'it'))
+                  .map(type => (
                   <button
                     key={type}
                     onClick={() => setSelectedType(type)}
@@ -1995,7 +2055,7 @@ export default function App() {
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
                     }`}
                   >
-                    {type === 'Todos' ? 'Todos' : type === 'POP' ? 'POPs' : type === 'ATR' ? 'ATRs' : 'ITs'}
+                    {type === 'Todos' ? 'Todos' : `${docTypeLabel(type.toLowerCase() as 'pop' | 'atr' | 'it')}s`}
                   </button>
                 ))}
               </div>
@@ -3241,7 +3301,7 @@ export default function App() {
               <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-850 flex justify-between items-center">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
-                    {editingId ? `Editar ${formId}` : `Criar Novo Documento: ${formDocType.toUpperCase()}`}
+                    {editingId ? `Editar ${formId}` : `Criar Novo Documento: ${docTypeLabel(formDocType)}`}
                   </h3>
                   <p className="text-3xs text-slate-400">Preencha os campos abaixo para salvar na base local de documentos da ACII</p>
                 </div>
@@ -3261,8 +3321,9 @@ export default function App() {
                   <div className="space-y-2.5">
                     <label className="block text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tipo de Documento</label>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                      {/* POP option card */}
-                      <div 
+                      {/* POP option card — Fase 2: some do seletor se a empresa desativou este tipo */}
+                      {isDocTypeEnabled('pop') && (
+                      <div
                         onClick={() => {
                           setFormDocType('pop');
                           const nextIdNum = Math.max(...pops.map(p => parseInt(p.id.split('-')[1]) || 0), 0) + 1;
@@ -3278,15 +3339,17 @@ export default function App() {
                           <Layers className="w-5 h-5" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Procedimento (POP)</h4>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Procedimento ({docTypeLabel('pop')})</h4>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-normal">
                             Descreve o fluxo operacional, etapas sequenciais de processos e indicadores de desempenho.
                           </p>
                         </div>
                       </div>
-                      
+                      )}
+
                       {/* ATR option card */}
-                      <div 
+                      {isDocTypeEnabled('atr') && (
+                      <div
                         onClick={() => {
                           setFormDocType('atr');
                           const nextIdNum = Math.max(...atrs.map(a => parseInt(a.id.split('-')[1]) || 0), 0) + 1;
@@ -3302,15 +3365,17 @@ export default function App() {
                           <Briefcase className="w-5 h-5" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Atribuição (ATR)</h4>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Atribuição ({docTypeLabel('atr')})</h4>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-normal">
                             Descreve as tarefas de um cargo, liderança direta/indireta, formação e competências técnicas ou atitudinais.
                           </p>
                         </div>
                       </div>
+                      )}
 
                       {/* IT option card */}
-                      <div 
+                      {isDocTypeEnabled('it') && (
+                      <div
                         onClick={() => {
                           setFormDocType('it');
                           const nextIdNum = Math.max(...its.map(i => parseInt(i.id.split('-')[1]) || 0), 0) + 1;
@@ -3326,12 +3391,13 @@ export default function App() {
                           <FileText className="w-5 h-5" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Instrução de Trabalho (IT)</h4>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight font-display">Instrução de Trabalho ({docTypeLabel('it')})</h4>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-normal">
                             Instruções simplificadas passo a passo de como fazer uma determinada tarefa de menor complexidade.
                           </p>
                         </div>
                       </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -3782,6 +3848,8 @@ export default function App() {
         pops={pops}
         atrs={atrs}
         its={its}
+        documentTypesSettings={documentTypesSettings}
+        onUpdateDocumentTypesSettings={handleUpdateDocumentTypesSettings}
         onSelectDoc={(id, type) => {
           setSelectedDocId(id);
           setSelectedDocType(type);

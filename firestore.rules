@@ -97,14 +97,19 @@ service cloud.firestore {
     // ─────────────────────────────────────────────────────────────────
     // companies: registro de cada empresa (tenant) do sistema. Leitura só
     // da PRÓPRIA empresa (ninguém precisa enxergar o nome/logo de outro
-    // cliente). Escrita: nenhuma pelo cliente por enquanto — criar uma
-    // empresa nova ainda é um processo manual/Admin SDK (a Fase 3 é que
-    // traz o fluxo de onboarding; até lá, mesma cautela usada em
-    // auth_links).
+    // cliente). CRIAR uma empresa nova continua um processo manual/Admin
+    // SDK (a Fase 3 é que traz o fluxo de onboarding). ATUALIZAR: admin
+    // da própria empresa pode editar as configurações dela (Fase 2 —
+    // documentTypes; Fase 4 — logo/cor), sempre sem trocar o próprio `id`
+    // nem migrar o documento pra outra empresa. Nunca DELETAR pelo
+    // cliente — apagar uma empresa é decisão fora do escopo de um clique
+    // de admin.
     // ─────────────────────────────────────────────────────────────────
     match /companies/{companyId} {
       allow read: if isSameCompany(companyId);
-      allow write: if false;
+      allow create, delete: if false;
+      allow update: if isSameCompany(companyId) && isAdmin() &&
+        request.resource.data.id == companyId;
     }
 
     // Setores: leitura restrita à PRÓPRIA empresa — mudou na Fase 1. Antes

@@ -6,7 +6,7 @@ import {
   Briefcase, Layers, FileText, Plus, Search, Lock, History, Clock, ArrowUpRight,
   RotateCcw, Power, Check
 } from 'lucide-react';
-import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT } from '../types';
+import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT, DocumentTypesSettings } from '../types';
 import { dbSaveUserAccount, dbDeleteUserAccount } from '../lib/firebaseSync';
 import { getDefaultInitialPassword, hashPassword, migrarERemoverSenhasEmTextoPuro } from '../lib/userManagement';
 
@@ -35,6 +35,8 @@ interface AdminUsersModalProps {
   atrs: ATR[];
   its: IT[];
   onSelectDoc?: (id: string, type: 'pop' | 'atr' | 'it') => void;
+  documentTypesSettings: DocumentTypesSettings;
+  onUpdateDocumentTypesSettings: (settings: DocumentTypesSettings) => void;
 }
 
 export default function AdminUsersModal({ 
@@ -50,9 +52,11 @@ export default function AdminUsersModal({
   pops,
   atrs,
   its,
-  onSelectDoc
+  onSelectDoc,
+  documentTypesSettings,
+  onUpdateDocumentTypesSettings
 }: AdminUsersModalProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'content_control' | 'logs'>('content_control');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'content_control' | 'document_types' | 'logs'>('content_control');
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   
@@ -581,7 +585,7 @@ export default function AdminUsersModal({
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
           {/* Subtabs inside Modal */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1">
+          <div className="grid grid-cols-3 sm:grid-cols-5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1">
             <button
               onClick={() => setActiveSubTab('content_control')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -614,6 +618,17 @@ export default function AdminUsersModal({
             >
               <Shield className="w-3.5 h-3.5" />
               <span>Perfis Padrão</span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('document_types')}
+              className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeSubTab === 'document_types'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-450 font-black shadow-3xs border border-emerald-500/15'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Tipos de Documento</span>
             </button>
             <button
               onClick={() => setActiveSubTab('logs')}
@@ -1354,6 +1369,72 @@ export default function AdminUsersModal({
                   </div>
                 </div>
               </div>
+            </div>
+          ) : activeSubTab === 'document_types' ? (
+            <div className="space-y-4">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl text-[11px] leading-relaxed text-slate-750 dark:text-slate-300 flex gap-2.5">
+                <Layers className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-450" />
+                <span>
+                  Desative um tipo de documento se sua empresa não usa (some do menu e das telas de
+                  criação — os documentos já cadastrados desse tipo não são apagados, só ficam fora
+                  de novos cadastros). O nome de exibição é usado nos filtros e títulos principais das
+                  telas; alguns textos internos dos formulários de cada tipo continuam com o nome
+                  padrão por enquanto.
+                </span>
+              </div>
+
+              {(Object.keys(documentTypesSettings) as Array<keyof DocumentTypesSettings>).map(typeKey => {
+                const config = documentTypesSettings[typeKey];
+                const defaultLabel = { atr: 'ATR', pop: 'POP', it: 'IT', guarded: 'Documentos' }[typeKey];
+                const description = {
+                  atr: 'Análise Técnica de Requisitos — descrição de cargo.',
+                  pop: 'Procedimento Operacional Padrão.',
+                  it: 'Instrução de Trabalho.',
+                  guarded: 'Guarda de documentos digitalizados por setor (contratos, notas fiscais, etc.).'
+                }[typeKey];
+                return (
+                  <div
+                    key={typeKey}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-4"
+                  >
+                    <label className="flex items-center gap-3 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={config.enabled}
+                        onChange={() => onUpdateDocumentTypesSettings({
+                          ...documentTypesSettings,
+                          [typeKey]: { ...config, enabled: !config.enabled }
+                        })}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Habilitado</span>
+                        <p className="text-[10px] text-slate-400">{defaultLabel} — {description}</p>
+                      </div>
+                    </label>
+                    <div className="flex-1 sm:max-w-xs sm:ml-auto">
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                        Nome de exibição
+                      </label>
+                      <input
+                        type="text"
+                        defaultValue={config.label}
+                        placeholder={defaultLabel}
+                        disabled={!config.enabled}
+                        onBlur={(e) => {
+                          const newLabel = e.target.value.trim() || defaultLabel;
+                          if (newLabel === config.label) return;
+                          onUpdateDocumentTypesSettings({
+                            ...documentTypesSettings,
+                            [typeKey]: { ...config, label: newLabel }
+                          });
+                        }}
+                        className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : activeSubTab === 'logs' ? (
             <div className="space-y-5">

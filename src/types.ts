@@ -25,7 +25,36 @@ export interface Company {
   primaryColor?: string;
   status?: 'ativo' | 'inativo';
   createdAt?: string; // ISO
+  documentTypes?: DocumentTypesSettings; // Fase 2 — ver comentário em DocumentTypesSettings
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Fase 2 — tipos de documento configuráveis por empresa
+// ─────────────────────────────────────────────────────────────────────
+// ATR/POP/IT/Digitalizado continuam sendo o padrão do produto (cada um
+// com sua própria coleção/estrutura de dados — não muda nesta fase), mas
+// cada empresa pode desativar o que não usa e trocar o nome de exibição,
+// sem tocar na estrutura de permissões (ProfilePermissionItem continua
+// igual: as permissões são por AÇÃO — ver/editar documento —, não por
+// tipo de documento).
+export interface DocumentTypeConfig {
+  enabled: boolean;
+  label: string; // nome de exibição (ex.: "IT" pode virar "Procedimento" pra outra empresa)
+}
+
+export interface DocumentTypesSettings {
+  atr: DocumentTypeConfig;
+  pop: DocumentTypeConfig;
+  it: DocumentTypeConfig;
+  guarded: DocumentTypeConfig; // módulo de Guarda de Documentos ("Digitalizado")
+}
+
+export const DEFAULT_DOCUMENT_TYPES_SETTINGS: DocumentTypesSettings = {
+  atr: { enabled: true, label: 'ATR' },
+  pop: { enabled: true, label: 'POP' },
+  it: { enabled: true, label: 'IT' },
+  guarded: { enabled: true, label: 'Documentos' }
+};
 
 export interface SectorData {
   id: string;

@@ -9,7 +9,7 @@ import {
 import { db } from './firebase';
 import { salvarDocumento, deletarDocumento } from '../config/firebase';
 import { logSystemEvent } from '../utils/logger';
-import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument } from '../types';
+import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument, DocumentTypesSettings } from '../types';
 import { getCurrentCompanyId } from './tenant';
 
 // Initial Data imports for seeding
@@ -169,6 +169,15 @@ export async function dbDeleteUserAccount(id: string, currentUser?: any) {
 // global antes da Fase 1 — cada empresa configura os papéis do jeito dela).
 export async function dbSavePermissions(perms: ProfilePermissions, currentUser?: any) {
   return await salvarDocumento('permissions', { ...perms, companyId: getCurrentCompanyId() }, getCurrentCompanyId(), currentUser);
+}
+
+// --- CONFIGURAÇÃO DE TIPOS DE DOCUMENTO (Fase 2 — por empresa) ---
+// Grava só o campo documentTypes dentro de companies/{companyId} (merge:
+// true em salvarDocumento não toca em name/status/logoUrl/etc. já
+// existentes no documento da empresa).
+export async function dbSaveCompanyDocumentTypes(documentTypes: DocumentTypesSettings, currentUser?: any) {
+  const companyId = getCurrentCompanyId();
+  return await salvarDocumento('companies', { id: companyId, documentTypes }, companyId, currentUser);
 }
 
 // --- GUARDED DOCUMENTS CRUD (Módulo de Guarda de Documentos) ---
