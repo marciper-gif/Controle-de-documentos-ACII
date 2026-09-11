@@ -64,9 +64,10 @@ function attemptUpload(
 const RETRY_DELAYS_MS = [4000, 8000, 15000, 25000];
 
 /**
- * Envia o arquivo para documentos/{sectorId}/{documentId}/v{version}_{fileName}
- * (caminho definido no item 2 da especificação) e retorna a URL de
- * download + o caminho salvo no Storage.
+ * Envia o arquivo para documentos/{companyId}/{sectorId}/{documentId}/v{version}_{fileName}
+ * (caminho definido no item 2 da especificação; companyId adicionado na
+ * Fase 1 — multiempresa, ver storage.rules) e retorna a URL de download +
+ * o caminho salvo no Storage.
  *
  * As Storage Rules deste projeto leem papel/setor via Custom Claims do
  * Firebase Auth (request.auth.token.role/.sectorId), sincronizados por
@@ -84,13 +85,14 @@ const RETRY_DELAYS_MS = [4000, 8000, 15000, 25000];
  */
 export async function uploadGuardedDocumentFile(
   file: File,
+  companyId: string,
   sectorId: string,
   documentId: string,
   version: number,
   onProgress?: (pct: number) => void,
   onRetry?: (attempt: number, totalAttempts: number) => void
 ): Promise<{ fileUrl: string; storagePath: string }> {
-  const storagePath = `documentos/${sectorId}/${documentId}/v${version}_${file.name}`;
+  const storagePath = `documentos/${companyId}/${sectorId}/${documentId}/v${version}_${file.name}`;
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {

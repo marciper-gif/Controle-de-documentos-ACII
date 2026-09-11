@@ -43,6 +43,12 @@ const PROJECT_ID = 'dogwood-loader-bln7n';
 const FIRESTORE_DATABASE_ID = 'ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900';
 const REGION = 'us-central1';
 
+// Fase 1 (multiempresa): primeiro tenant do sistema. Precisa ser IDÊNTICO
+// a DEFAULT_COMPANY_ID em src/lib/tenant.ts — usado como fallback pra
+// contas/documentos ainda não migrados (sem campo companyId) e como o ID
+// gravado pelo script functions/migrate-add-company-id.js.
+const DEFAULT_COMPANY_ID = 'acii';
+
 initializeApp({ projectId: PROJECT_ID });
 
 let firestoreInstance = null;
@@ -71,6 +77,10 @@ function sha256Hex(input) {
  * mesma lógica de resolveUserSectorId em src/lib/authLink.ts, mas rodando
  * aqui (Admin SDK, servidor) porque authLink.ts deixou de poder escrever
  * auth_links diretamente (ver nota grande acima de exports.login).
+ *
+ * Fase 1 (multiempresa): a busca de setores é restrita à MESMA empresa do
+ * funcionário — sem isso, um nome de setor igual em duas empresas
+ * diferentes poderia resolver o sectorId da empresa errada.
  */
 async function resolveSectorIdForEmployee(firestore, employeeId) {
   try {
@@ -79,7 +89,8 @@ async function resolveSectorIdForEmployee(firestore, employeeId) {
     if (!empSnap.exists) return null;
     const employee = empSnap.data();
     if (!employee.sector) return null;
-    const sectorsSnap = await firestore.collection('sectors').get();
+    const companyId = employee.companyId || DEFAULT_COMPANY_ID;
+    const sectorsSnap = await firestore.collection('sectors').where('companyId', '==', companyId).get();
     for (const sectorDoc of sectorsSnap.docs) {
       const s = sectorDoc.data();
       if (s.name === employee.sector || s.id === employee.sector || sectorDoc.id === employee.sector) {
@@ -108,15 +119,19 @@ exports.syncAuthLinkClaims = onDocumentWritten(
         // Documento apagado (não deveria acontecer no fluxo normal do
         // app) — limpa os claims por segurança, em vez de deixar um
         // papel/setor obsoleto valendo pra sempre no token desse uid.
-        await getAuth().setCustomUserClaims(uid, { role: null, sectorId: null });
+        await getAuth().setCustomUserClaims(uid, { role: null, sectorId: null, companyId: null });
         logger.info(`Claims limpos para uid=${uid} (auth_links removido).`);
         return;
       }
 
       const role = after.role ?? null;
       const sectorId = after.sectorId ?? null;
-      await getAuth().setCustomUserClaims(uid, { role, sectorId });
-      logger.info(`Claims sincronizados para uid=${uid}: role=${role}, sectorId=${sectorId}`);
+      // companyId (Fase 1): espelhado pro token igual role/sectorId, pelo
+      // mesmo motivo (storage.rules não consegue consultar o Firestore
+      // direto — ver comentário grande no topo deste arquivo).
+      const companyId = after.companyId ?? DEFAULT_COMPANY_ID;
+      await getAuth().setCustomUserClaims(uid, { role, sectorId, companyId });
+      logger.info(`Claims sincronizados para uid=${uid}: role=${role}, sectorId=${sectorId}, companyId=${companyId}`);
     } catch (err) {
       // Não há como "falhar" de volta pro cliente aqui (é um trigger
       // assíncrono) — o retry do cliente (waitForClaimsSync) vai apenas
@@ -279,12 +294,18 @@ exports.login = onCall({ region: REGION }, async (request) => {
 
     const role = userData.role || 'colaborador';
     const sectorId = await resolveSectorIdForEmployee(firestore, userData.employeeId);
+    // Fase 1 (multiempresa): a conta define a que empresa pertence. Contas
+    // criadas antes da migração (functions/migrate-add-company-id.js) ainda
+    // não têm este campo — cai no primeiro tenant (a própria ACII), nunca
+    // em "sem empresa" (o que deixaria as regras do Firestore travadas).
+    const companyId = userData.companyId || DEFAULT_COMPANY_ID;
 
     await firestore.collection('auth_links').doc(request.auth.uid).set(
       {
         userId: userDoc.id,
         role,
         sectorId: sectorId ?? null,
+        companyId,
         updatedAt: FieldValue.serverTimestamp()
       },
       { merge: true }
@@ -298,6 +319,7 @@ exports.login = onCall({ region: REGION }, async (request) => {
       precisaTrocarSenha,
       userData: {
         id: userDoc.id,
+        companyId,
         username: userData.username,
         name: userData.name,
         role,
@@ -350,6 +372,13 @@ exports.linkGoogleUser = onCall({ region: REGION }, async (request) => {
     const firestore = db();
     const isRuntimeAdmin = emailLower === RUNTIME_ADMIN_EMAIL;
 
+    // LIMITAÇÃO CONHECIDA (Fase 1): a busca abaixo é por e-mail em TODAS as
+    // empresas — é assim que a empresa do usuário é descoberta no login
+    // Google, já que ainda não existe nenhuma tela de "escolha sua empresa"
+    // (isso é Fase 3, onboarding). Funciona porque, na prática, só a ACII
+    // existe hoje. No dia em que houver uma segunda empresa, dois
+    // funcionários com o MESMO e-mail em empresas diferentes resolveriam
+    // pra empresa errada — resolver isso é pré-requisito da Fase 3.
     let matchedEmployee = null;
     const empSnap = await firestore.collection('employees').where('email', '==', email).limit(1).get();
     if (!empSnap.empty) {
@@ -372,10 +401,17 @@ exports.linkGoogleUser = onCall({ region: REGION }, async (request) => {
     }
 
     const existingSnap = await firestore.collection('users').doc(uid).get();
-    const employeeId = matchedEmployee ? matchedEmployee.id : existingSnap.data()?.employeeId;
+    const existingData = existingSnap.data();
+    const employeeId = matchedEmployee ? matchedEmployee.id : existingData?.employeeId;
+
+    // Fase 1 (multiempresa): resolve a empresa pelo funcionário vinculado
+    // (mesma fonte usada pra papel/setor), depois pela conta já existente,
+    // e só por último cai no primeiro tenant — nunca fica "sem empresa".
+    const companyId = matchedEmployee?.companyId || existingData?.companyId || DEFAULT_COMPANY_ID;
 
     const userDataToSave = {
       id: uid,
+      companyId,
       username: emailLower.split('@')[0],
       name: displayName,
       role,
@@ -387,7 +423,7 @@ exports.linkGoogleUser = onCall({ region: REGION }, async (request) => {
 
     const sectorId = await resolveSectorIdForEmployee(firestore, employeeId);
     await firestore.collection('auth_links').doc(uid).set(
-      { userId: uid, role, sectorId: sectorId ?? null, updatedAt: FieldValue.serverTimestamp() },
+      { userId: uid, role, sectorId: sectorId ?? null, companyId, updatedAt: FieldValue.serverTimestamp() },
       { merge: true }
     );
 
@@ -396,6 +432,7 @@ exports.linkGoogleUser = onCall({ region: REGION }, async (request) => {
       userId: uid,
       userData: {
         id: uid,
+        companyId,
         username: userDataToSave.username,
         name: displayName,
         role,
@@ -438,6 +475,7 @@ exports.setPassword = onCall({ region: REGION }, async (request) => {
     const callerLink = authLinkSnap.exists ? authLinkSnap.data() : null;
     const callerRole = callerLink?.role;
     const callerUserId = callerLink?.userId;
+    const callerCompanyId = callerLink?.companyId || DEFAULT_COMPANY_ID;
 
     const isSelf = callerUserId === targetUserId;
     const isPrivileged = callerRole === 'admin' || callerRole === 'gestor' || callerRole === 'lider';
@@ -449,6 +487,14 @@ exports.setPassword = onCall({ region: REGION }, async (request) => {
     const targetSnap = await firestore.collection('users').doc(targetUserId).get();
     if (!targetSnap.exists) {
       throw new HttpsError('not-found', 'Usuário não encontrado.');
+    }
+
+    // Fase 1 (multiempresa): admin/gestor só pode resetar senha de alguém
+    // da PRÓPRIA empresa — sem isso, um gestor da empresa A poderia
+    // resetar a senha de um usuário da empresa B só sabendo o ID dele.
+    const targetCompanyId = targetSnap.data()?.companyId || DEFAULT_COMPANY_ID;
+    if (!isSelf && targetCompanyId !== callerCompanyId) {
+      throw new HttpsError('permission-denied', 'Sem permissão para alterar a senha deste usuário.');
     }
 
     const passwordHash = sha256Hex(newPassword);

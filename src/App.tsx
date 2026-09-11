@@ -62,7 +62,7 @@ import ACIILogo from './components/ACIILogo';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { onSnapshot, collection, doc, getDoc } from 'firebase/firestore';
+import { onSnapshot, collection, doc, getDoc, query, where } from 'firebase/firestore';
 import { auth, db, ensureAnonymousAuth } from './lib/firebase';
 import { linkGoogleUserCallable } from './lib/functions';
 import { hashPassword } from './lib/userManagement';
@@ -90,6 +90,7 @@ import { usePopsState } from './hooks/usePopsState';
 import { useItsState } from './hooks/useItsState';
 import { useSectorsState } from './hooks/useSectorsState';
 import { useEmployeesState } from './hooks/useEmployeesState';
+import { DEFAULT_COMPANY_ID, setCurrentCompanyId } from './lib/tenant';
 
 export { getReviewStatus };
 
@@ -150,6 +151,26 @@ export default function App() {
   // Firestore só começam depois disso, porque as regras agora exigem
   // `request.auth != null`.
   const [authReady, setAuthReady] = useState(false);
+
+  // Fase 1 (multiempresa): empresa (tenant) da sessão atual, derivada do
+  // usuário logado. Contas ainda não migradas (companyId ausente) caem no
+  // primeiro tenant, a própria ACII — ver DEFAULT_COMPANY_ID em
+  // src/lib/tenant.ts e functions/migrate-add-company-id.js. Espelhado no
+  // módulo tenant.ts (singleton) logo abaixo, pra quem grava no Firestore
+  // (src/lib/firebaseSync.ts) sem precisar receber companyId por parâmetro.
+  //
+  // Propositalmente `null` ANTES do login (currentUser ainda null): as
+  // Firestore Rules agora exigem que o companyId do documento bata com o
+  // da sessão (auth_links/{uid}.companyId), e esse vínculo só existe DEPOIS
+  // do login (Cloud Function `login`/`linkGoogleUser`) — não na sessão
+  // anônima-ponte que existe antes disso. Um companyId "chutado" aqui
+  // antes do login não leria nada mesmo (regras negam), só geraria erros
+  // de permissão previsíveis na tela de login. Os hooks abaixo já tratam
+  // companyId === null como "ainda não assina nada".
+  const companyId = currentUser ? (currentUser.companyId || DEFAULT_COMPANY_ID) : null;
+  useEffect(() => {
+    setCurrentCompanyId(companyId);
+  }, [companyId]);
 
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
@@ -284,6 +305,10 @@ export default function App() {
 
   const handleLogin = (user: UserAccount) => {
     setCurrentUser(user);
+    // Grava síncrono (não espera o useEffect de `companyId` rodar) porque
+    // seedDatabaseIfEmpty/dbSaveX podem ser chamados logo em seguida, antes
+    // do próximo render — ver src/lib/tenant.ts.
+    setCurrentCompanyId(user.companyId || DEFAULT_COMPANY_ID);
     localStorage.setItem('ms-current-user', JSON.stringify(user));
 
     // A Cloud Function `login` (chamada dentro de fazerLogin, em
@@ -305,13 +330,13 @@ export default function App() {
   // Documents Management (Predefined + Local Drafts) e Setores: cada um
   // com estado + persistência em localStorage + sincronização em tempo
   // real com o Firestore isolados no próprio hook (ver src/hooks/).
-  const [atrs, setATRs] = useAtrsState(authReady);
-  const [pops, setPOPs] = usePopsState(authReady);
-  const [its, setITs] = useItsState(authReady);
-  const [sectors, setSectors] = useSectorsState(authReady);
+  const [atrs, setATRs] = useAtrsState(authReady, companyId);
+  const [pops, setPOPs] = usePopsState(authReady, companyId);
+  const [its, setITs] = useItsState(authReady, companyId);
+  const [sectors, setSectors] = useSectorsState(authReady, companyId);
 
   // Dynamic employees state - only preserving employees created in the system
-  const [employees, setEmployees] = useEmployeesState(authReady);
+  const [employees, setEmployees] = useEmployeesState(authReady, companyId);
 
   // (a persistência de `sectors` em localStorage já roda dentro de
   // useSectorsState — esta era mais uma gravação idêntica, removida)
@@ -426,12 +451,13 @@ export default function App() {
           });
 
           setCurrentUser(googleUserAccount);
+          setCurrentCompanyId(googleUserAccount.companyId || DEFAULT_COMPANY_ID);
           localStorage.setItem('ms-current-user', JSON.stringify(googleUserAccount));
         } catch (e) {
           console.error('Falha ao vincular sessão do Google:', e);
         }
 
-        // Seed DB if empty
+        // Seed DB if empty (já usa o companyId acabado de definir)
         await seedDatabaseIfEmpty();
       } else {
         // Nenhuma sessão do Firebase Auth ainda: cria uma anônima para que
@@ -459,17 +485,21 @@ export default function App() {
   // Synchronize collections with Firestore for real-time multi-device persistence
   useEffect(() => {
     // Espera existir sessão do Firebase Auth (mesmo anônima) antes de abrir
-    // qualquer listener — as Firestore Rules agora exigem request.auth.
-    if (!db || !authReady) return;
+    // qualquer listener — as Firestore Rules agora exigem request.auth. A
+    // partir da Fase 1 (multiempresa), também espera `companyId` (só
+    // existe depois do login de verdade — ver comentário na declaração de
+    // `companyId` acima): as regras passam a exigir que o companyId do
+    // documento bata com o de auth_links/{uid}, que só é gravado pelas
+    // Cloud Functions login/linkGoogleUser.
+    if (!db || !authReady || !companyId) return;
 
     // Seed database if empty on load
     seedDatabaseIfEmpty();
 
     // Setores, funcionários, ATRs, POPs e ITs têm cada um seu próprio hook
     // agora (ver src/hooks/) — estado, persistência em localStorage e
-    // assinatura do Firestore isolados, sem depender deste efeito nem de
-    // `currentUser` (só de `authReady`, que é tudo que eles realmente
-    // precisam).
+    // assinatura do Firestore isolados, sem depender deste efeito.
+    // Recebem `companyId` explicitamente (Fase 1), além de `authReady`.
 
     // guarded_documents NÃO tem mais um listener global aqui — ver
     // comentário na declaração do estado (removida), mais acima.
@@ -483,7 +513,7 @@ export default function App() {
     const isAccountManager = currentUser?.role === 'admin' || currentUser?.role === 'gestor' || currentUser?.role === 'lider';
 
     const unsubUsers = isAccountManager
-      ? onSnapshot(collection(db, 'users'), (snapshot) => {
+      ? onSnapshot(query(collection(db, 'users'), where('companyId', '==', companyId)), (snapshot) => {
           const list: UserAccount[] = [];
           snapshot.forEach((doc) => {
             list.push(doc.data() as UserAccount);
@@ -529,8 +559,9 @@ export default function App() {
         })
       : () => {};
 
-    // Real-time Permissions subscription
-    const unsubPermissions = onSnapshot(doc(db, 'permissions', 'default'), (docSnap) => {
+    // Real-time Permissions subscription — um documento por empresa desde
+    // a Fase 1 (era um único `permissions/default` global antes).
+    const unsubPermissions = onSnapshot(doc(db, 'permissions', companyId), (docSnap) => {
       if (docSnap.exists()) {
         rawSetProfilePermissions(docSnap.data() as ProfilePermissions);
       }
@@ -543,7 +574,7 @@ export default function App() {
       unsubOwnUser();
       unsubPermissions();
     };
-  }, [currentUser, authReady]);
+  }, [currentUser, authReady, companyId]);
 
   // Check if a user has access to a document (Colaborador = only explicitly linked, Gestor = explicitly linked + sector/group, Admin = all)
   const userHasAccessToDoc = useCallback((doc: ATR | POP | IT, docType: 'atr' | 'pop' | 'it') => {

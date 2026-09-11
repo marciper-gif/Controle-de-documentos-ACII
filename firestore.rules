@@ -9,13 +9,13 @@ service cloud.firestore {
     // Firebase Auth como ponte (ensureAnonymousAuth, em
     // src/config/firebase.ts) ANTES do login, só pra ter um
     // request.auth.uid; a própria Cloud Function grava o vínculo
-    // usuário/papel/setor em auth_links/{uid} depois de validar a senha
-    // no servidor. Quem entra com "Entrar com o Google" passa pela
+    // usuário/papel/setor/EMPRESA em auth_links/{uid} depois de validar a
+    // senha no servidor. Quem entra com "Entrar com o Google" passa pela
     // Cloud Function `linkGoogleUser`, mesmo motivo. Estas regras
     // dependem desse vínculo para saber quem está pedindo o quê — sem
-    // ele, `request.auth` existe mas não tem papel nenhum. O CLIENTE
-    // NUNCA escreve auth_links diretamente (ver a regra logo abaixo) —
-    // só essas duas Cloud Functions podem.
+    // ele, `request.auth` existe mas não tem papel nem empresa nenhuma. O
+    // CLIENTE NUNCA escreve auth_links diretamente (ver a regra logo
+    // abaixo) — só essas duas Cloud Functions podem.
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
@@ -41,6 +41,24 @@ service cloud.firestore {
 
     function currentSectorId() {
       return hasAuthLink() ? currentProfile().sectorId : null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Multiempresa (Fase 1). companyId da SESSÃO vem de auth_links, nunca
+    // de um campo que o próprio request esteja mandando — senão bastaria
+    // qualquer cliente mandar o companyId que quisesse. Documento sem
+    // auth_link (sessão anônima pré-login) não tem empresa nenhuma:
+    // currentCompanyId() vira null, e nenhum documento real tem
+    // companyId=null (a migração garante isso — ver
+    // functions/migrate-add-company-id.js), então toda comparação abaixo
+    // fecha o acesso por padrão nesse estado, em vez de abrir.
+    // ─────────────────────────────────────────────────────────────────
+    function currentCompanyId() {
+      return hasAuthLink() ? currentProfile().companyId : null;
+    }
+
+    function isSameCompany(companyId) {
+      return isAuthenticated() && currentCompanyId() != null && companyId == currentCompanyId();
     }
 
     function isAdmin() {
@@ -76,96 +94,137 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Setores: leitura para qualquer sessão autenticada (inclui a anônima
-    // usada pelo login por CPF/senha — a tela de login e o app em geral
-    // precisam da lista de setores antes mesmo de existir um auth_link).
-    // Escrita restrita a quem gerencia a estrutura organizacional.
-    match /sectors/{sectorId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+    // ─────────────────────────────────────────────────────────────────
+    // companies: registro de cada empresa (tenant) do sistema. Leitura só
+    // da PRÓPRIA empresa (ninguém precisa enxergar o nome/logo de outro
+    // cliente). Escrita: nenhuma pelo cliente por enquanto — criar uma
+    // empresa nova ainda é um processo manual/Admin SDK (a Fase 3 é que
+    // traz o fluxo de onboarding; até lá, mesma cautela usada em
+    // auth_links).
+    // ─────────────────────────────────────────────────────────────────
+    match /companies/{companyId} {
+      allow read: if isSameCompany(companyId);
+      allow write: if false;
     }
 
-    // Documentos do sistema (POPs, ATRs, ITs)
+    // Setores: leitura restrita à PRÓPRIA empresa — mudou na Fase 1. Antes
+    // era liberado pra qualquer sessão autenticada, inclusive a anônima
+    // pré-login, porque a tela de login precisava da lista de setores
+    // antes de existir um auth_link. Isso não é mais compatível com
+    // isolamento entre empresas (a sessão anônima de QUALQUER visitante
+    // conseguiria listar os setores de QUALQUER empresa). A tela de login
+    // hoje não depende mais disso (ver App.tsx — os hooks de estado só
+    // assinam depois do login). Escrita restrita a quem gerencia a
+    // estrutura organizacional, da própria empresa.
+    match /sectors/{sectorId} {
+      allow read: if isSameCompany(resource.data.companyId);
+      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
+      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
+    }
+
+    // Documentos do sistema (POPs, ATRs, ITs) — mesmo padrão de isolamento.
     match /pops/{popId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isSameCompany(resource.data.companyId);
+      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
+      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
     }
 
     match /atrs/{atrId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isSameCompany(resource.data.companyId);
+      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
+      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
     }
 
     match /its/{itId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isSameCompany(resource.data.companyId);
+      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
+      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
     }
 
     // Funcionários
     match /employees/{employeeId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isGestor();
+      allow read: if isSameCompany(resource.data.companyId);
+      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
+      allow update, delete: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor());
     }
 
-    // Usuários (contas de acesso — hash de senha, papel, status).
+    // Usuários (contas de acesso — hash de senha, papel, status, empresa).
     // ANTES: legível por qualquer sessão autenticada, inclusive a
     // anônima criada automaticamente pra todo visitante — ou seja,
     // qualquer pessoa que abrisse o site conseguia ler CPF e hash de
     // senha de todo mundo. O login agora é validado inteiramente na
     // Cloud Function `login` (Admin SDK, ignora estas regras), então o
     // cliente não precisa mais ler esta coleção pra logar — só admin/
-    // gestor (telas de gestão) ou o próprio dono do registro.
+    // gestor (telas de gestão) da MESMA empresa, ou o próprio dono do
+    // registro.
     //
-    // Escrita: admin/gestor grava qualquer campo (gestão de contas). O
+    // Escrita: admin/gestor da mesma empresa grava qualquer campo (gestão
+    // de contas), sem poder criar/mudar um usuário para OUTRA empresa. O
     // próprio usuário só pode alterar o PRÓPRIO documento, e nunca os
     // campos que definem seu nível de acesso (role, employeeId, status,
-    // accountStatus) — sem isso, qualquer colaborador logado poderia
-    // simplesmente gravar role:"admin" no próprio registro pelo SDK do
-    // cliente. Trocar a própria senha passa pela Cloud Function
-    // `setPassword` (Admin SDK) e não escreve mais aqui direto.
+    // accountStatus, companyId) — sem isso, qualquer colaborador logado
+    // poderia gravar role:"admin" (ou companyId de outra empresa!) no
+    // próprio registro pelo SDK do cliente. Trocar a própria senha passa
+    // pela Cloud Function `setPassword` (Admin SDK) e não escreve mais
+    // aqui direto.
     match /users/{userId} {
-      allow read: if isAdmin() || isGestor() || currentUserId() == userId;
-      allow create: if isAdmin() || isGestor();
-      allow update: if isAdmin() || isGestor() || (
+      allow read: if isSameCompany(resource.data.companyId) && (isAdmin() || isGestor() || currentUserId() == userId);
+      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
+      allow update: if (
+        isSameCompany(resource.data.companyId) &&
+        (isAdmin() || isGestor()) &&
+        isSameCompany(request.resource.data.companyId)
+      ) || (
         currentUserId() == userId &&
         request.resource.data.get('role', null) == resource.data.get('role', null) &&
         request.resource.data.get('employeeId', null) == resource.data.get('employeeId', null) &&
         request.resource.data.get('status', null) == resource.data.get('status', null) &&
-        request.resource.data.get('accountStatus', null) == resource.data.get('accountStatus', null)
+        request.resource.data.get('accountStatus', null) == resource.data.get('accountStatus', null) &&
+        request.resource.data.get('companyId', null) == resource.data.get('companyId', null)
       );
-      allow delete: if isAdmin();
+      allow delete: if isSameCompany(resource.data.companyId) && isAdmin();
     }
 
-    // Permissões de perfis — só admin define o que cada papel pode fazer.
-    match /permissions/{permId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+    // Permissões de perfis — um documento POR EMPRESA desde a Fase 1 (era
+    // um único permissions/default global antes; o ID do documento agora
+    // É o companyId — ver src/lib/firebaseSync.ts, dbSavePermissions). Só
+    // admin da própria empresa define o que cada papel pode fazer nela.
+    match /permissions/{companyId} {
+      allow read: if isSameCompany(companyId);
+      allow write: if isSameCompany(companyId) && isAdmin();
     }
 
-    // Logs de auditoria do sistema: qualquer sessão autenticada pode
-    // registrar um evento; só admin lê o histórico completo.
+    // Logs de auditoria do sistema: qualquer sessão autenticada da mesma
+    // empresa pode registrar um evento; só admin dessa empresa lê o
+    // histórico completo.
     match /system_logs/{logId} {
-      allow create: if isAuthenticated();
-      allow read: if isAdmin();
-      allow update, delete: if isAdmin();
+      allow create: if isSameCompany(request.resource.data.companyId);
+      allow read: if isSameCompany(resource.data.companyId) && isAdmin();
+      allow update, delete: if isSameCompany(resource.data.companyId) && isAdmin();
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Módulo de guarda de documentos (guarda controlada por setor).
-    // Leitura: admin, ou setor dono do documento, ou setor listado em
-    // extraViewerSectorIds. Criação: admin/gestor. Edição/eliminação:
-    // admin, ou gestor do próprio setor do documento.
+    // Módulo de guarda de documentos (guarda controlada por setor, dentro
+    // da própria empresa). Leitura: admin da empresa, ou setor dono do
+    // documento, ou setor listado em extraViewerSectorIds — sempre dentro
+    // da mesma empresa. Criação: admin/gestor da própria empresa.
+    // Edição/eliminação: admin, ou gestor do próprio setor do documento,
+    // sempre dentro da mesma empresa.
     // ─────────────────────────────────────────────────────────────────
     match /guarded_documents/{docId} {
-      allow read: if isAdmin()
+      allow read: if isSameCompany(resource.data.companyId) && (
+        isAdmin()
         || currentSectorId() == resource.data.sectorId
         || (resource.data.extraViewerSectorIds is list
-            && currentSectorId() in resource.data.extraViewerSectorIds);
+            && currentSectorId() in resource.data.extraViewerSectorIds)
+      );
 
-      allow create: if isAdmin() || isGestor();
+      allow create: if isSameCompany(request.resource.data.companyId) && (isAdmin() || isGestor());
 
-      allow update, delete: if isAdmin()
-        || (isGestor() && currentSectorId() == resource.data.sectorId);
+      allow update, delete: if isSameCompany(resource.data.companyId) && (
+        isAdmin()
+        || (isGestor() && currentSectorId() == resource.data.sectorId)
+      );
     }
   }
 }

@@ -13,11 +13,12 @@ service firebase.storage {
     // admin de verdade — bug reproduzido e diagnosticado em produção.
     //
     // Solução: uma Cloud Function (functions/index.js,
-    // syncAuthLinkClaims) espelha auth_links/{uid} (role, sectorId) em
-    // Custom Claims do Firebase Auth sempre que esse documento muda.
-    // Custom claims vêm DENTRO do token (request.auth.token), então o
-    // Storage lê sem nenhuma consulta cross-service — problema resolvido
-    // na raiz, não contornado.
+    // syncAuthLinkClaims) espelha auth_links/{uid} (role, sectorId,
+    // companyId — este último desde a Fase 1/multiempresa) em Custom
+    // Claims do Firebase Auth sempre que esse documento muda. Custom
+    // claims vêm DENTRO do token (request.auth.token), então o Storage
+    // lê sem nenhuma consulta cross-service — problema resolvido na
+    // raiz, não contornado.
     // ─────────────────────────────────────────────────────────────────
 
     function isAuthenticated() {
@@ -30,6 +31,14 @@ service firebase.storage {
 
     function currentSectorId() {
       return isAuthenticated() ? request.auth.token.sectorId : null;
+    }
+
+    // Multiempresa (Fase 1). Igual ao Firestore: o companyId da sessão vem
+    // SÓ do custom claim (espelhado de auth_links pela Cloud Function
+    // syncAuthLinkClaims no servidor) — nunca de algo que o próprio
+    // request possa influenciar.
+    function currentCompanyId() {
+      return isAuthenticated() ? request.auth.token.companyId : null;
     }
 
     function isAdmin() {
@@ -56,8 +65,10 @@ service firebase.storage {
         );
     }
 
-    // documentos/{sectorId}/{documentId}/v{version}_{fileName}
-    match /documentos/{sectorId}/{documentId}/{fileName} {
+    // documentos/{companyId}/{sectorId}/{documentId}/v{version}_{fileName}
+    // (companyId adicionado na Fase 1 — multiempresa; era só
+    // documentos/{sectorId}/... antes. Ver src/lib/documentStorage.ts.)
+    match /documentos/{companyId}/{sectorId}/{documentId}/{fileName} {
       // NOTA: o campo extraViewerSectorIds (setores extras com permissão
       // de visualização de um documento específico, item 5/6 da
       // especificação) NÃO é checado aqui — ele vive em
@@ -66,17 +77,23 @@ service firebase.storage {
       // nomeado acima). Continua funcionando normalmente na TELA (o
       // Firestore libera a leitura da metadata pros setores extras
       // normalmente), mas o arquivo em si no Storage só é liberado pro
-      // setor dono do documento ou admin. TODO: se isso virar bloqueio
-      // real no uso, resolver com uma Cloud Function callable que gera
-      // uma URL assinada de download após checar o Firestore no servidor
-      // (sem as limitações do storage.rules).
-      allow read: if isAuthenticated() && (isAdmin() || currentSectorId() == sectorId);
+      // setor dono do documento ou admin, dentro da mesma empresa. TODO:
+      // se isso virar bloqueio real no uso, resolver com uma Cloud
+      // Function callable que gera uma URL assinada de download após
+      // checar o Firestore no servidor (sem as limitações do storage.rules).
+      allow read: if isAuthenticated() && companyId == currentCompanyId() &&
+        (isAdmin() || currentSectorId() == sectorId);
 
-      // Upload/nova versão: admin ou gestor do próprio setor da pasta.
-      // TODO (etapa 9 da especificação): incluir aqui também quem tiver
-      // canUploadDocuments == true no perfil — precisa entrar nos custom
-      // claims também (hoje só role/sectorId são espelhados).
-      allow create, update: if isAuthenticated() &&
+      // Upload/nova versão: admin ou gestor do próprio setor da pasta,
+      // dentro da MESMA empresa do caminho — sem isSameCompany aqui, um
+      // gestor da empresa A poderia enviar um arquivo pra dentro da pasta
+      // da empresa B só sabendo o companyId dela (os IDs de empresa não
+      // são segredo — aparecem em URLs, por exemplo).
+      // TODO (etapa 9 da especificação, ainda pendente de antes da Fase
+      // 1): incluir aqui também quem tiver canUploadDocuments == true no
+      // perfil — precisa entrar nos custom claims também (hoje só
+      // role/sectorId/companyId são espelhados).
+      allow create, update: if isAuthenticated() && companyId == currentCompanyId() &&
         (isAdmin() || (isGestor() && currentSectorId() == sectorId)) &&
         isValidDocumentUpload();
 

@@ -25,15 +25,21 @@ export async function waitForSessionClaims(
   expectedRole: string,
   expectedSectorId: string | null,
   maxAttempts = 10,
-  delayMs = 2000
+  delayMs = 2000,
+  expectedCompanyId?: string | null
 ): Promise<void> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const user = auth.currentUser;
     if (!user) return;
     try {
       const result = await user.getIdTokenResult(true);
+      // companyId (Fase 1) só é conferido quando informado pelo chamador —
+      // parâmetro opcional pra não quebrar quem ainda chama esta função
+      // sem ele.
+      const companyMatches =
+        expectedCompanyId === undefined || (result.claims.companyId ?? null) === expectedCompanyId;
       const claimsMatch =
-        result.claims.role === expectedRole && (result.claims.sectorId ?? null) === expectedSectorId;
+        result.claims.role === expectedRole && (result.claims.sectorId ?? null) === expectedSectorId && companyMatches;
       if (claimsMatch) return;
     } catch (e) {
       console.warn('Falha ao verificar custom claims após login:', e);

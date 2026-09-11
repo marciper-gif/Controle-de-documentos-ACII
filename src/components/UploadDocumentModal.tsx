@@ -10,6 +10,7 @@ import {
 } from '../lib/documentStorage';
 import { calculateRetentionUntil, DEFAULT_RETENTION_YEARS_BY_TYPE, DOCUMENT_TYPE_SUGGESTIONS } from '../utils/guardedDocuments';
 import { normalizeForSearch } from '../lib/guardedDocumentsQuery';
+import { DEFAULT_COMPANY_ID } from '../lib/tenant';
 
 interface UploadDocumentModalProps {
   sectors: SectorData[];
@@ -28,6 +29,8 @@ export default function UploadDocumentModal({
   onClose,
   onSaved
 }: UploadDocumentModalProps) {
+  // Fase 1 (multiempresa) — ver src/lib/tenant.ts.
+  const companyId = currentUser?.companyId || DEFAULT_COMPANY_ID;
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Trava de duplo-clique: `disabled={uploading}` no botão não é rápido
   // o bastante sozinho — dois cliques bem próximos podem chamar
@@ -124,6 +127,7 @@ export default function UploadDocumentModal({
       const documentId = generateGuardedDocumentId();
       const { fileUrl, storagePath } = await uploadGuardedDocumentFile(
         file,
+        companyId,
         sectorId,
         documentId,
         1,
@@ -136,6 +140,7 @@ export default function UploadDocumentModal({
 
       const newDoc: GuardedDocument = {
         id: documentId,
+        companyId,
         title: title.trim(),
         titleLower: normalizeForSearch(title.trim()),
         sectorId,

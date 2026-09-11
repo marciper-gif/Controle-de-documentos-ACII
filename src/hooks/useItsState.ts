@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, SetStateAction } from 'react';
-import { onSnapshot, collection } from 'firebase/firestore';
+import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { dbSaveIT } from '../lib/firebaseSync';
 import { IT } from '../types';
@@ -9,8 +9,9 @@ import { initialITs } from '../data/its';
  * Estado das ITs (predefinidas + criadas no sistema), com persistência em
  * localStorage e sincronização em tempo real com o Firestore. Extraído de
  * App.tsx — mesmo comportamento de antes, só que isolado num hook próprio.
+ * `companyId` (Fase 1 — multiempresa): ver comentário em useSectorsState.ts.
  */
-export function useItsState(authReady: boolean) {
+export function useItsState(authReady: boolean, companyId: string | null) {
   const [its, rawSetITs] = useState<IT[]>(() => {
     const saved = localStorage.getItem('ms-its');
     if (!saved) return initialITs;
@@ -46,9 +47,9 @@ export function useItsState(authReady: boolean) {
   }, [its]);
 
   useEffect(() => {
-    if (!db || !authReady) return;
+    if (!db || !authReady || !companyId) return;
 
-    const unsubITs = onSnapshot(collection(db, 'its'), (snapshot) => {
+    const unsubITs = onSnapshot(query(collection(db, 'its'), where('companyId', '==', companyId)), (snapshot) => {
       const list: IT[] = [];
       snapshot.forEach((doc) => {
         list.push(doc.data() as IT);
@@ -64,7 +65,7 @@ export function useItsState(authReady: boolean) {
     });
 
     return () => unsubITs();
-  }, [authReady]);
+  }, [authReady, companyId]);
 
   return [its, setITs] as const;
 }

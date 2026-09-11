@@ -26,11 +26,12 @@
 // mostra um link pronto pra criar quando uma consulta que precisa de
 // índice roda pela primeira vez sem ele existir — é só clicar nesse
 // link no console do navegador, ou criar manualmente no Console:
-// Firestore → Índices → Adicionar índice):
-//   1. guarded_documents: sectorId ASC, uploadedAt DESC
-//   2. guarded_documents: sectorId ASC, titleLower ASC
-//   3. guarded_documents: status ASC, retentionUntil ASC
-//   4. guarded_documents: sectorId ASC, status ASC, retentionUntil ASC
+// Firestore → Índices → Adicionar índice). Atualizados na Fase 1
+// (multiempresa) com companyId como primeiro filtro de igualdade:
+//   1. guarded_documents: companyId ASC, sectorId ASC, uploadedAt DESC
+//   2. guarded_documents: companyId ASC, sectorId ASC, titleLower ASC
+//   3. guarded_documents: companyId ASC, status ASC, retentionUntil ASC
+//   4. guarded_documents: companyId ASC, sectorId ASC, status ASC, retentionUntil ASC
 
 import {
   collection,
@@ -77,8 +78,12 @@ export function normalizeForSearch(text: string): string {
  * preço de uma leitura normal, mesmo que o setor tenha milhares de
  * documentos). Usado nos cards da grade de pastas.
  */
-export async function getSectorDocumentCount(sectorId: string): Promise<number> {
-  const q = query(collection(db, COLLECTION_NAME), where('sectorId', '==', sectorId));
+export async function getSectorDocumentCount(companyId: string, sectorId: string): Promise<number> {
+  const q = query(
+    collection(db, COLLECTION_NAME),
+    where('companyId', '==', companyId),
+    where('sectorId', '==', sectorId)
+  );
   const snapshot = await getCountFromServer(q);
   return snapshot.data().count;
 }
@@ -91,6 +96,7 @@ export async function getSectorDocumentCount(sectorId: string): Promise<number> 
  * gerenciar cursor manualmente.
  */
 export function subscribeToSectorDocuments(
+  companyId: string,
   sectorId: string,
   pageLimit: number,
   onData: (docs: GuardedDocument[]) => void,
@@ -98,6 +104,7 @@ export function subscribeToSectorDocuments(
 ): Unsubscribe {
   const q = query(
     collection(db, COLLECTION_NAME),
+    where('companyId', '==', companyId),
     where('sectorId', '==', sectorId),
     orderBy('uploadedAt', 'desc'),
     limit(pageLimit)
@@ -116,6 +123,7 @@ export function subscribeToSectorDocuments(
  * setor, pra montar a busca global (ver DocumentsView.tsx).
  */
 export function subscribeToSectorDocumentsByTitlePrefix(
+  companyId: string,
   sectorId: string,
   prefixNormalized: string,
   resultLimit: number,
@@ -124,6 +132,7 @@ export function subscribeToSectorDocumentsByTitlePrefix(
 ): Unsubscribe {
   const q = query(
     collection(db, COLLECTION_NAME),
+    where('companyId', '==', companyId),
     where('sectorId', '==', sectorId),
     where('titleLower', '>=', prefixNormalized),
     where('titleLower', '<', prefixNormalized + ''),
@@ -150,6 +159,7 @@ export function subscribeToSectorDocumentsByTitlePrefix(
  * eliminação.
  */
 export function subscribeToExpiringDocuments(
+  companyId: string,
   options: { sectorId?: string | null; horizonDays?: number; resultLimit?: number },
   onData: (docs: GuardedDocument[]) => void,
   onError: (err: Error) => void
@@ -160,9 +170,13 @@ export function subscribeToExpiringDocuments(
   horizonDate.setDate(horizonDate.getDate() + horizonDays);
   const horizonIso = horizonDate.toISOString();
 
-  const constraints = [where('status', '==', 'ativo'), where('retentionUntil', '<=', horizonIso)];
+  const constraints = [
+    where('companyId', '==', companyId),
+    where('status', '==', 'ativo'),
+    where('retentionUntil', '<=', horizonIso)
+  ];
   if (options.sectorId) {
-    constraints.unshift(where('sectorId', '==', options.sectorId));
+    constraints.push(where('sectorId', '==', options.sectorId));
   }
 
   const q = query(

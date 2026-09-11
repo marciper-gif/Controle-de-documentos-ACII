@@ -11,6 +11,7 @@ import {
 } from '../utils/guardedDocuments';
 import { subscribeToExpiringDocuments } from '../lib/guardedDocumentsQuery';
 import { dbSaveGuardedDocument } from '../lib/firebaseSync';
+import { DEFAULT_COMPANY_ID } from '../lib/tenant';
 
 interface ExpiringDocumentsPanelProps {
   currentUser: UserAccount | null;
@@ -33,6 +34,8 @@ export default function ExpiringDocumentsPanel({
   mySectorId,
   canManageRetention = false
 }: ExpiringDocumentsPanelProps) {
+  // Fase 1 (multiempresa) — ver src/lib/tenant.ts.
+  const companyId = currentUser?.companyId || DEFAULT_COMPANY_ID;
   const [expanded, setExpanded] = useState(true);
   const [renewingDoc, setRenewingDoc] = useState<GuardedDocument | null>(null);
   const [renewYears, setRenewYears] = useState(5);
@@ -68,6 +71,7 @@ export default function ExpiringDocumentsPanel({
       return;
     }
     const unsubscribe = subscribeToExpiringDocuments(
+      companyId,
       { sectorId: sectorScope },
       list => {
         setDocs(list);
@@ -79,7 +83,7 @@ export default function ExpiringDocumentsPanel({
       }
     );
     return () => unsubscribe();
-  }, [canManage, isAdmin, mySectorId]);
+  }, [canManage, isAdmin, mySectorId, companyId]);
 
   const uploaderName = currentUser?.name || currentUser?.username || 'Usuário';
 

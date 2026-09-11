@@ -37,6 +37,7 @@ import {
 } from '../lib/guardedDocumentsQuery';
 import UploadDocumentModal from './UploadDocumentModal';
 import ExpiringDocumentsPanel from './ExpiringDocumentsPanel';
+import { DEFAULT_COMPANY_ID } from '../lib/tenant';
 
 interface DocumentsViewProps {
   sectors: SectorData[];
@@ -66,6 +67,9 @@ export default function DocumentsView({
   currentUserEmployee,
   userPermissions
 }: DocumentsViewProps) {
+  // Fase 1 (multiempresa): toda consulta/upload de documento guardado é
+  // escopada por companyId — ver src/lib/tenant.ts.
+  const companyId = currentUser?.companyId || DEFAULT_COMPANY_ID;
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [historyDoc, setHistoryDoc] = useState<GuardedDocument | null>(null);
@@ -82,7 +86,7 @@ export default function DocumentsView({
   useEffect(() => {
     let cancelled = false;
     sectors.forEach(sector => {
-      getSectorDocumentCount(sector.id)
+      getSectorDocumentCount(companyId, sector.id)
         .then(count => {
           if (!cancelled) setSectorCounts(prev => ({ ...prev, [sector.id]: count }));
         })
@@ -93,7 +97,7 @@ export default function DocumentsView({
     return () => {
       cancelled = true;
     };
-  }, [sectors]);
+  }, [sectors, companyId]);
 
   // ── Pasta aberta: lista paginada, em tempo real ────────────────────
   const [openDocs, setOpenDocs] = useState<GuardedDocument[]>([]);
@@ -111,6 +115,7 @@ export default function DocumentsView({
     }
     setOpenLoading(true);
     const unsubscribe = subscribeToSectorDocuments(
+      companyId,
       selectedSectorId,
       openPageLimit,
       docs => {
@@ -123,7 +128,7 @@ export default function DocumentsView({
       }
     );
     return () => unsubscribe();
-  }, [selectedSectorId, openPageLimit]);
+  }, [selectedSectorId, openPageLimit, companyId]);
 
   // Só mostra "Carregar mais" se a última página veio cheia — sinal de
   // que provavelmente existe mais além do limite atual.
@@ -165,6 +170,7 @@ export default function DocumentsView({
     };
     const unsubscribes = sectors.map(sector =>
       subscribeToSectorDocumentsByTitlePrefix(
+        companyId,
         sector.id,
         normalizedQuery,
         SEARCH_RESULTS_PER_SECTOR,
@@ -182,7 +188,7 @@ export default function DocumentsView({
       )
     );
     return () => unsubscribes.forEach(unsub => unsub());
-  }, [normalizedQuery, sectors]);
+  }, [normalizedQuery, sectors, companyId]);
 
   // Reenvio de nova versão (item 4.5 da especificação)
   const versionInputRef = useRef<HTMLInputElement>(null);
@@ -227,6 +233,7 @@ export default function DocumentsView({
       const newVersionNumber = doc.version + 1;
       const { fileUrl, storagePath } = await uploadGuardedDocumentFile(
         file,
+        doc.companyId || companyId,
         doc.sectorId,
         doc.id,
         newVersionNumber,

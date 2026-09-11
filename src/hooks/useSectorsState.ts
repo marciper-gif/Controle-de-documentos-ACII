@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, SetStateAction } from 'react';
-import { onSnapshot, collection } from 'firebase/firestore';
+import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { dbSaveSector } from '../lib/firebaseSync';
 import { SectorData } from '../types';
@@ -11,8 +11,12 @@ import { initialSectors } from '../data/sectors';
  * antes, só que isolado num hook próprio (inclusive a antiga duplicata do
  * efeito de persistência em localStorage, que existia em dois lugares
  * diferentes do arquivo fazendo exatamente a mesma gravação).
+ *
+ * `companyId` (Fase 1 — multiempresa): filtra a assinatura do Firestore só
+ * pelos setores da empresa da sessão atual. Sem ele (ainda carregando),
+ * o hook não abre a assinatura — evita um instante lendo dado errado.
  */
-export function useSectorsState(authReady: boolean) {
+export function useSectorsState(authReady: boolean, companyId: string | null) {
   const [sectors, rawSetSectors] = useState<SectorData[]>(() => {
     const saved = localStorage.getItem('ms-sectors');
     if (!saved) return initialSectors;
@@ -56,9 +60,9 @@ export function useSectorsState(authReady: boolean) {
   }, [sectors]);
 
   useEffect(() => {
-    if (!db || !authReady) return;
+    if (!db || !authReady || !companyId) return;
 
-    const unsubSectors = onSnapshot(collection(db, 'sectors'), (snapshot) => {
+    const unsubSectors = onSnapshot(query(collection(db, 'sectors'), where('companyId', '==', companyId)), (snapshot) => {
       const list: SectorData[] = [];
       snapshot.forEach((doc) => {
         list.push(doc.data() as SectorData);
@@ -74,7 +78,7 @@ export function useSectorsState(authReady: boolean) {
     });
 
     return () => unsubSectors();
-  }, [authReady]);
+  }, [authReady, companyId]);
 
   return [sectors, setSectors] as const;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, SetStateAction } from 'react';
-import { onSnapshot, collection } from 'firebase/firestore';
+import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { dbSaveATR } from '../lib/firebaseSync';
 import { ATR } from '../types';
@@ -9,8 +9,9 @@ import { initialATRs } from '../data/atrs';
  * Estado dos ATRs (predefinidos + criados no sistema), com persistência em
  * localStorage e sincronização em tempo real com o Firestore. Extraído de
  * App.tsx — mesmo comportamento de antes, só que isolado num hook próprio.
+ * `companyId` (Fase 1 — multiempresa): ver comentário em useSectorsState.ts.
  */
-export function useAtrsState(authReady: boolean) {
+export function useAtrsState(authReady: boolean, companyId: string | null) {
   const [atrs, rawSetATRs] = useState<ATR[]>(() => {
     const saved = localStorage.getItem('ms-atrs');
     const initialAtrsWithComercial = initialATRs.map(atr => {
@@ -58,9 +59,9 @@ export function useAtrsState(authReady: boolean) {
   // Real-time subscription (espera sessão do Firebase Auth — ver comentário
   // no efeito equivalente em App.tsx sobre `authReady`).
   useEffect(() => {
-    if (!db || !authReady) return;
+    if (!db || !authReady || !companyId) return;
 
-    const unsubATRs = onSnapshot(collection(db, 'atrs'), (snapshot) => {
+    const unsubATRs = onSnapshot(query(collection(db, 'atrs'), where('companyId', '==', companyId)), (snapshot) => {
       const list: ATR[] = [];
       snapshot.forEach((doc) => {
         list.push(doc.data() as ATR);
@@ -76,7 +77,7 @@ export function useAtrsState(authReady: boolean) {
     });
 
     return () => unsubATRs();
-  }, [authReady]);
+  }, [authReady, companyId]);
 
   return [atrs, setATRs] as const;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, SetStateAction } from 'react';
-import { onSnapshot, collection } from 'firebase/firestore';
+import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { dbSaveEmployee } from '../lib/firebaseSync';
 import { Employee } from '../types';
@@ -9,8 +9,9 @@ import { Employee } from '../types';
  * predefinidos" como ATR/POP/IT), com persistência em localStorage e
  * sincronização em tempo real com o Firestore. Extraído de App.tsx — mesmo
  * comportamento de antes, só que isolado num hook próprio.
+ * `companyId` (Fase 1 — multiempresa): ver comentário em useSectorsState.ts.
  */
-export function useEmployeesState(authReady: boolean) {
+export function useEmployeesState(authReady: boolean, companyId: string | null) {
   const [employees, rawSetEmployees] = useState<Employee[]>(() => {
     const saved = localStorage.getItem('ms-employees');
     if (!saved) return [];
@@ -43,9 +44,9 @@ export function useEmployeesState(authReady: boolean) {
   }, [employees]);
 
   useEffect(() => {
-    if (!db || !authReady) return;
+    if (!db || !authReady || !companyId) return;
 
-    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+    const unsubEmployees = onSnapshot(query(collection(db, 'employees'), where('companyId', '==', companyId)), (snapshot) => {
       rawSetEmployees((prev) => {
         const map = new Map<string, Employee>();
         prev.forEach((e) => { if (e && e.id) map.set(e.id, e); });
@@ -66,7 +67,7 @@ export function useEmployeesState(authReady: boolean) {
     });
 
     return () => unsubEmployees();
-  }, [authReady]);
+  }, [authReady, companyId]);
 
   return [employees, setEmployees] as const;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, SetStateAction } from 'react';
-import { onSnapshot, collection } from 'firebase/firestore';
+import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { dbSavePOP } from '../lib/firebaseSync';
 import { POP } from '../types';
@@ -9,8 +9,9 @@ import { initialPOPs } from '../data/pops';
  * Estado dos POPs (predefinidos + criados no sistema), com persistência em
  * localStorage e sincronização em tempo real com o Firestore. Extraído de
  * App.tsx — mesmo comportamento de antes, só que isolado num hook próprio.
+ * `companyId` (Fase 1 — multiempresa): ver comentário em useSectorsState.ts.
  */
-export function usePopsState(authReady: boolean) {
+export function usePopsState(authReady: boolean, companyId: string | null) {
   const [pops, rawSetPOPs] = useState<POP[]>(() => {
     const saved = localStorage.getItem('ms-pops');
     if (!saved) return initialPOPs;
@@ -46,9 +47,9 @@ export function usePopsState(authReady: boolean) {
   }, [pops]);
 
   useEffect(() => {
-    if (!db || !authReady) return;
+    if (!db || !authReady || !companyId) return;
 
-    const unsubPOPs = onSnapshot(collection(db, 'pops'), (snapshot) => {
+    const unsubPOPs = onSnapshot(query(collection(db, 'pops'), where('companyId', '==', companyId)), (snapshot) => {
       const list: POP[] = [];
       snapshot.forEach((doc) => {
         list.push(doc.data() as POP);
@@ -64,7 +65,7 @@ export function usePopsState(authReady: boolean) {
     });
 
     return () => unsubPOPs();
-  }, [authReady]);
+  }, [authReady, companyId]);
 
   return [pops, setPOPs] as const;
 }
