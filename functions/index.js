@@ -36,16 +36,26 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { logger } = require('firebase-functions');
 const crypto = require('crypto');
 
-initializeApp();
-
 // Precisa bater com firestoreDatabaseId em firebase-applet-config.json.
 // Se o banco Firestore for recriado/renomeado, atualizar aqui também
 // (mesmo cuidado documentado no topo de storage.rules e firestore.rules).
+const PROJECT_ID = 'dogwood-loader-bln7n';
 const FIRESTORE_DATABASE_ID = 'ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900';
 const REGION = 'us-central1';
 
+initializeApp({ projectId: PROJECT_ID });
+
+let firestoreInstance = null;
 function db() {
-  return getFirestore(FIRESTORE_DATABASE_ID);
+  if (!firestoreInstance) {
+    firestoreInstance = getFirestore(FIRESTORE_DATABASE_ID);
+    try {
+      firestoreInstance.settings({ ignoreUndefinedProperties: true });
+    } catch (_) {
+      // settings já aplicadas em invocações anteriores
+    }
+  }
+  return firestoreInstance;
 }
 
 // Mesmo algoritmo do hashPassword do cliente (src/lib/userManagement.ts):
@@ -63,19 +73,24 @@ function sha256Hex(input) {
  * auth_links diretamente (ver nota grande acima de exports.login).
  */
 async function resolveSectorIdForEmployee(firestore, employeeId) {
-  if (!employeeId) return null;
-  const empSnap = await firestore.collection('employees').doc(employeeId).get();
-  if (!empSnap.exists) return null;
-  const employee = empSnap.data();
-  if (!employee.sector) return null;
-  const sectorsSnap = await firestore.collection('sectors').get();
-  for (const sectorDoc of sectorsSnap.docs) {
-    const s = sectorDoc.data();
-    if (s.name === employee.sector || s.id === employee.sector || sectorDoc.id === employee.sector) {
-      return s.id || sectorDoc.id;
+  try {
+    if (!employeeId) return null;
+    const empSnap = await firestore.collection('employees').doc(String(employeeId)).get();
+    if (!empSnap.exists) return null;
+    const employee = empSnap.data();
+    if (!employee.sector) return null;
+    const sectorsSnap = await firestore.collection('sectors').get();
+    for (const sectorDoc of sectorsSnap.docs) {
+      const s = sectorDoc.data();
+      if (s.name === employee.sector || s.id === employee.sector || sectorDoc.id === employee.sector) {
+        return s.id || sectorDoc.id;
+      }
     }
+    return null;
+  } catch (err) {
+    logger.warn('Falha ao resolver setor do colaborador:', err);
+    return null;
   }
-  return null;
 }
 
 exports.syncAuthLinkClaims = onDocumentWritten(
@@ -148,118 +163,167 @@ const LOGIN_ATTEMPT_MAX = 10;
  * perfil do usuário SEM nenhum campo de senha.
  */
 exports.login = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Sessão inválida. Recarregue a página e tente novamente.');
-  }
-
   const username = String(request.data?.username || '').trim();
   const password = String(request.data?.password || '');
-  if (!username || !password) {
-    throw new HttpsError('invalid-argument', 'Informe usuário e senha.');
-  }
 
-  const usernameLower = username.toLowerCase();
-  const cpfDigits = username.replace(/\D/g, '');
-  const firestore = db();
-
-  // Limitação de tentativas por login (defesa contra força bruta — antes
-  // não existia nenhuma, já que a senha nem chegava a ser validada aqui).
-  const attemptsRef = firestore.collection('login_attempts').doc(usernameLower || 'desconhecido');
-  const attemptsSnap = await attemptsRef.get();
-  const now = Date.now();
-  if (attemptsSnap.exists) {
-    const data = attemptsSnap.data();
-    if (data.count >= LOGIN_ATTEMPT_MAX && data.firstAttemptAt && (now - data.firstAttemptAt) < LOGIN_ATTEMPT_WINDOW_MS) {
-      throw new HttpsError('resource-exhausted', 'Muitas tentativas de login. Aguarde alguns minutos e tente novamente.');
+  try {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sessão inválida. Recarregue a página e tente novamente.');
     }
-  }
 
-  const registerFailedAttempt = async () => {
-    let count = 1;
-    let firstAttemptAt = now;
+    if (!username || !password) {
+      throw new HttpsError('invalid-argument', 'Informe usuário e senha.');
+    }
+
+    const usernameLower = username.toLowerCase();
+    const cpfDigits = username.replace(/\D/g, '');
+    const firestore = db();
+
+    // Limitação de tentativas por login (defesa contra força bruta — antes
+    // não existia nenhuma, já que a senha nem chegava a ser validada aqui).
+    const attemptsRef = firestore.collection('login_attempts').doc(usernameLower || 'desconhecido');
+    const attemptsSnap = await attemptsRef.get();
+    const now = Date.now();
     if (attemptsSnap.exists) {
       const data = attemptsSnap.data();
-      if (data.firstAttemptAt && (now - data.firstAttemptAt) < LOGIN_ATTEMPT_WINDOW_MS) {
-        count = (data.count || 0) + 1;
-        firstAttemptAt = data.firstAttemptAt;
+      if (data.count >= LOGIN_ATTEMPT_MAX && data.firstAttemptAt && (now - data.firstAttemptAt) < LOGIN_ATTEMPT_WINDOW_MS) {
+        throw new HttpsError('resource-exhausted', 'Muitas tentativas de login. Aguarde alguns minutos e tente novamente.');
       }
     }
-    await attemptsRef.set({ count, firstAttemptAt });
-  };
 
-  const usersRef = firestore.collection('users');
-  let userDoc = null;
-  let snap = await usersRef.where('username', '==', username).limit(1).get();
-  if (snap.empty && username !== usernameLower) {
-    snap = await usersRef.where('username', '==', usernameLower).limit(1).get();
-  }
-  if (snap.empty && cpfDigits) {
-    snap = await usersRef.where('username', '==', cpfDigits).limit(1).get();
-  }
-  if (!snap.empty) userDoc = snap.docs[0];
+    const registerFailedAttempt = async () => {
+      try {
+        let count = 1;
+        let firstAttemptAt = now;
+        if (attemptsSnap.exists) {
+          const data = attemptsSnap.data();
+          if (data.firstAttemptAt && (now - data.firstAttemptAt) < LOGIN_ATTEMPT_WINDOW_MS) {
+            count = (data.count || 0) + 1;
+            firstAttemptAt = data.firstAttemptAt;
+          }
+        }
+        await attemptsRef.set({ count, firstAttemptAt });
+      } catch (attemptErr) {
+        logger.warn('Falha ao registrar tentativa de login falha:', attemptErr);
+      }
+    };
 
-  if (!userDoc) {
-    await registerFailedAttempt();
-    throw new HttpsError('not-found', 'Usuário não encontrado. Verifique o CPF/Login informado.');
-  }
-
-  const userData = userDoc.data();
-  const accountStatus = String(userData.accountStatus || userData.status || 'ativo').toLowerCase();
-  if (accountStatus === 'inativo') {
-    throw new HttpsError('permission-denied', 'Conta inativa. Contate o administrador.');
-  }
-  if (accountStatus === 'bloqueado') {
-    throw new HttpsError('permission-denied', 'Conta bloqueada. Contate o administrador.');
-  }
-
-  const storedHash = userData.passwordHash || '';
-  if (!storedHash) {
-    await registerFailedAttempt();
-    throw new HttpsError('permission-denied', 'Conta sem senha configurada. Contate o administrador.');
-  }
-
-  const candidateHashes = [sha256Hex(password), sha256Hex(password.toLowerCase())];
-  const senhaCorreta = candidateHashes.includes(storedHash);
-
-  if (!senhaCorreta) {
-    await registerFailedAttempt();
-    throw new HttpsError('permission-denied', 'Senha incorreta.');
-  }
-
-  await attemptsRef.delete().catch(() => {});
-
-  const role = userData.role || 'colaborador';
-  const sectorId = await resolveSectorIdForEmployee(firestore, userData.employeeId);
-
-  await firestore.collection('auth_links').doc(request.auth.uid).set(
-    {
-      userId: userDoc.id,
-      role,
-      sectorId,
-      updatedAt: FieldValue.serverTimestamp()
-    },
-    { merge: true }
-  );
-
-  const precisaTrocarSenha = role !== 'admin' && (userData.firstAccess === true || userData.primeiro_acesso === true);
-
-  return {
-    success: true,
-    userId: userDoc.id,
-    precisaTrocarSenha,
-    userData: {
-      id: userDoc.id,
-      username: userData.username,
-      name: userData.name,
-      role,
-      employeeId: userData.employeeId,
-      status: userData.status,
-      accountStatus: userData.accountStatus,
-      primeiro_acesso: userData.primeiro_acesso,
-      firstAccess: userData.firstAccess,
-      lastPasswordChange: userData.lastPasswordChange
+    const usersRef = firestore.collection('users');
+    let userDoc = null;
+    let snap = await usersRef.where('username', '==', username).limit(1).get();
+    if (snap.empty && username !== usernameLower) {
+      snap = await usersRef.where('username', '==', usernameLower).limit(1).get();
     }
-  };
+    if (snap.empty && cpfDigits) {
+      snap = await usersRef.where('username', '==', cpfDigits).limit(1).get();
+    }
+    if (snap.empty && cpfDigits && !isNaN(Number(cpfDigits))) {
+      snap = await usersRef.where('username', '==', Number(cpfDigits)).limit(1).get();
+    }
+    if (!snap.empty) userDoc = snap.docs[0];
+
+    // Busca direta por ID do documento caso username seja o próprio id (ex: '1', 'admin', CPF)
+    if (!userDoc && username) {
+      const directDoc = await usersRef.doc(username).get();
+      if (directDoc.exists) userDoc = directDoc;
+    }
+
+    if (!userDoc) {
+      await registerFailedAttempt();
+      throw new HttpsError('not-found', 'Usuário não encontrado. Verifique o CPF/Login informado.');
+    }
+
+    const userData = userDoc.data();
+    const accountStatus = String(userData.accountStatus || userData.status || 'ativo').toLowerCase();
+    if (accountStatus === 'inativo') {
+      throw new HttpsError('permission-denied', 'Conta inativa. Contate o administrador.');
+    }
+    if (accountStatus === 'bloqueado') {
+      throw new HttpsError('permission-denied', 'Conta bloqueada. Contate o administrador.');
+    }
+
+    const storedHash = userData.passwordHash || '';
+    const plainLegacyPassword = userData.password ? String(userData.password) : null;
+    let senhaValida = false;
+
+    if (storedHash) {
+      const candidateHashes = [sha256Hex(password), sha256Hex(password.toLowerCase())];
+      if (candidateHashes.includes(storedHash)) {
+        senhaValida = true;
+      }
+    }
+
+    // Se ainda não validou pelo hash, verifica se a conta ainda tem senha em texto puro legada
+    if (!senhaValida && plainLegacyPassword) {
+      if (plainLegacyPassword === password || plainLegacyPassword.toLowerCase() === password.toLowerCase()) {
+        senhaValida = true;
+        // Migra automaticamente a senha para hash no banco e remove o texto puro
+        const newHash = sha256Hex(password);
+        userDoc.ref.update({
+          passwordHash: newHash,
+          password: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp()
+        }).catch(e => logger.warn('Falha na migração automática de senha legada:', e));
+      }
+    }
+
+    if (!senhaValida) {
+      await registerFailedAttempt();
+      if (!storedHash && !plainLegacyPassword) {
+        throw new HttpsError('permission-denied', 'Conta sem senha configurada. Contate o administrador.');
+      }
+      throw new HttpsError('permission-denied', 'Senha incorreta.');
+    }
+
+    await attemptsRef.delete().catch(() => {});
+
+    const role = userData.role || 'colaborador';
+    const sectorId = await resolveSectorIdForEmployee(firestore, userData.employeeId);
+
+    await firestore.collection('auth_links').doc(request.auth.uid).set(
+      {
+        userId: userDoc.id,
+        role,
+        sectorId: sectorId ?? null,
+        updatedAt: FieldValue.serverTimestamp()
+      },
+      { merge: true }
+    );
+
+    const precisaTrocarSenha = role !== 'admin' && (userData.firstAccess === true || userData.primeiro_acesso === true);
+
+    return {
+      success: true,
+      userId: userDoc.id,
+      precisaTrocarSenha,
+      userData: {
+        id: userDoc.id,
+        username: userData.username,
+        name: userData.name,
+        role,
+        employeeId: userData.employeeId || null,
+        status: userData.status || null,
+        accountStatus: userData.accountStatus || null,
+        primeiro_acesso: userData.primeiro_acesso ?? false,
+        firstAccess: userData.firstAccess ?? false,
+        lastPasswordChange: userData.lastPasswordChange || null
+      }
+    };
+  } catch (err) {
+    logger.error('❌ ERRO DETALHADO NA FUNÇÃO LOGIN:', {
+      message: err.message,
+      code: err.code,
+      details: err.details,
+      stack: err.stack,
+      username
+    });
+    if (err instanceof HttpsError) {
+      throw err;
+    }
+    throw new HttpsError('unavailable', `Erro no login: ${err.message || 'Erro inesperado no servidor'}`, {
+      code: err.code || 'UNKNOWN'
+    });
+  }
 });
 
 const RUNTIME_ADMIN_EMAIL = 'marciper@gmail.com';
@@ -273,70 +337,76 @@ const RUNTIME_ADMIN_EMAIL = 'marciper@gmail.com';
  * decide mais o próprio papel sozinho.
  */
 exports.linkGoogleUser = onCall({ region: REGION }, async (request) => {
-  const token = request.auth?.token;
-  if (!request.auth || !token?.email) {
-    throw new HttpsError('unauthenticated', 'É necessário estar autenticado com o Google.');
-  }
+  try {
+    const token = request.auth?.token;
+    if (!request.auth || !token?.email) {
+      throw new HttpsError('unauthenticated', 'É necessário estar autenticado com o Google.');
+    }
 
-  const uid = request.auth.uid;
-  const email = token.email;
-  const emailLower = email.toLowerCase();
-  const displayName = token.name || 'Usuário Google';
-  const firestore = db();
-  const isRuntimeAdmin = emailLower === RUNTIME_ADMIN_EMAIL;
+    const uid = request.auth.uid;
+    const email = token.email;
+    const emailLower = email.toLowerCase();
+    const displayName = token.name || 'Usuário Google';
+    const firestore = db();
+    const isRuntimeAdmin = emailLower === RUNTIME_ADMIN_EMAIL;
 
-  let matchedEmployee = null;
-  const empSnap = await firestore.collection('employees').where('email', '==', email).limit(1).get();
-  if (!empSnap.empty) {
-    matchedEmployee = { id: empSnap.docs[0].id, ...empSnap.docs[0].data() };
-  } else {
-    // E-mail pode estar salvo com outra caixa — verificação adicional
-    // (coleção de funcionários costuma ser pequena, custo aceitável).
-    const allEmp = await firestore.collection('employees').get();
-    const found = allEmp.docs.find((d) => (d.data().email || '').toLowerCase() === emailLower);
-    if (found) matchedEmployee = { id: found.id, ...found.data() };
-  }
+    let matchedEmployee = null;
+    const empSnap = await firestore.collection('employees').where('email', '==', email).limit(1).get();
+    if (!empSnap.empty) {
+      matchedEmployee = { id: empSnap.docs[0].id, ...empSnap.docs[0].data() };
+    } else {
+      // E-mail pode estar salvo com outra caixa — verificação adicional
+      // (coleção de funcionários costuma ser pequena, custo aceitável).
+      const allEmp = await firestore.collection('employees').get();
+      const found = allEmp.docs.find((d) => (d.data().email || '').toLowerCase() === emailLower);
+      if (found) matchedEmployee = { id: found.id, ...found.data() };
+    }
 
-  let role = isRuntimeAdmin ? 'admin' : 'colaborador';
-  if (matchedEmployee && !isRuntimeAdmin) {
-    const roleLower = String(matchedEmployee.role || '').toLowerCase();
-    const isLeadership = ['gerente', 'coordenador', 'diretor', 'supervisor', 'lider', 'gestor'].some((k) =>
-      roleLower.includes(k)
-    );
-    role = isLeadership ? 'gestor' : 'colaborador';
-  }
+    let role = isRuntimeAdmin ? 'admin' : 'colaborador';
+    if (matchedEmployee && !isRuntimeAdmin) {
+      const roleLower = String(matchedEmployee.role || '').toLowerCase();
+      const isLeadership = ['gerente', 'coordenador', 'diretor', 'supervisor', 'lider', 'gestor'].some((k) =>
+        roleLower.includes(k)
+      );
+      role = isLeadership ? 'gestor' : 'colaborador';
+    }
 
-  const existingSnap = await firestore.collection('users').doc(uid).get();
-  const employeeId = matchedEmployee ? matchedEmployee.id : existingSnap.data()?.employeeId;
+    const existingSnap = await firestore.collection('users').doc(uid).get();
+    const employeeId = matchedEmployee ? matchedEmployee.id : existingSnap.data()?.employeeId;
 
-  const userDataToSave = {
-    id: uid,
-    username: emailLower.split('@')[0],
-    name: displayName,
-    role,
-    employeeId: employeeId || FieldValue.delete(),
-    updatedAt: FieldValue.serverTimestamp()
-  };
-
-  await firestore.collection('users').doc(uid).set(userDataToSave, { merge: true });
-
-  const sectorId = await resolveSectorIdForEmployee(firestore, employeeId);
-  await firestore.collection('auth_links').doc(uid).set(
-    { userId: uid, role, sectorId, updatedAt: FieldValue.serverTimestamp() },
-    { merge: true }
-  );
-
-  return {
-    success: true,
-    userId: uid,
-    userData: {
+    const userDataToSave = {
       id: uid,
-      username: userDataToSave.username,
+      username: emailLower.split('@')[0],
       name: displayName,
       role,
-      employeeId: employeeId || undefined
-    }
-  };
+      employeeId: employeeId || FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    await firestore.collection('users').doc(uid).set(userDataToSave, { merge: true });
+
+    const sectorId = await resolveSectorIdForEmployee(firestore, employeeId);
+    await firestore.collection('auth_links').doc(uid).set(
+      { userId: uid, role, sectorId: sectorId ?? null, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+
+    return {
+      success: true,
+      userId: uid,
+      userData: {
+        id: uid,
+        username: userDataToSave.username,
+        name: displayName,
+        role,
+        employeeId: employeeId || null
+      }
+    };
+  } catch (err) {
+    logger.error('❌ ERRO NA FUNÇÃO LINKGOOGLEUSER:', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', `Erro no vínculo Google [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
+  }
 });
 
 /**
@@ -349,54 +419,60 @@ exports.linkGoogleUser = onCall({ region: REGION }, async (request) => {
  * campo `password` em texto puro — só `passwordHash`.
  */
 exports.setPassword = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Sessão inválida. Recarregue a página e tente novamente.');
+  try {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sessão inválida. Recarregue a página e tente novamente.');
+    }
+
+    const targetUserId = String(request.data?.targetUserId || '').trim();
+    const newPassword = String(request.data?.newPassword || '');
+    if (!targetUserId || !newPassword) {
+      throw new HttpsError('invalid-argument', 'Dados incompletos para alterar a senha.');
+    }
+    if (newPassword.length < 3) {
+      throw new HttpsError('invalid-argument', 'A senha é muito curta.');
+    }
+
+    const firestore = db();
+    const authLinkSnap = await firestore.collection('auth_links').doc(request.auth.uid).get();
+    const callerLink = authLinkSnap.exists ? authLinkSnap.data() : null;
+    const callerRole = callerLink?.role;
+    const callerUserId = callerLink?.userId;
+
+    const isSelf = callerUserId === targetUserId;
+    const isPrivileged = callerRole === 'admin' || callerRole === 'gestor' || callerRole === 'lider';
+
+    if (!isSelf && !isPrivileged) {
+      throw new HttpsError('permission-denied', 'Sem permissão para alterar a senha deste usuário.');
+    }
+
+    const targetSnap = await firestore.collection('users').doc(targetUserId).get();
+    if (!targetSnap.exists) {
+      throw new HttpsError('not-found', 'Usuário não encontrado.');
+    }
+
+    const passwordHash = sha256Hex(newPassword);
+    const nowFormatted = new Date().toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    await firestore.collection('users').doc(targetUserId).update({
+      passwordHash,
+      password: FieldValue.delete(),
+      firstAccess: !isSelf,
+      primeiro_acesso: !isSelf,
+      lastPasswordChange: nowFormatted,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true, userId: targetUserId, lastPasswordChange: nowFormatted };
+  } catch (err) {
+    logger.error('❌ ERRO NA FUNÇÃO SETPASSWORD:', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', `Erro ao alterar senha [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
   }
-
-  const targetUserId = String(request.data?.targetUserId || '').trim();
-  const newPassword = String(request.data?.newPassword || '');
-  if (!targetUserId || !newPassword) {
-    throw new HttpsError('invalid-argument', 'Dados incompletos para alterar a senha.');
-  }
-  if (newPassword.length < 3) {
-    throw new HttpsError('invalid-argument', 'A senha é muito curta.');
-  }
-
-  const firestore = db();
-  const authLinkSnap = await firestore.collection('auth_links').doc(request.auth.uid).get();
-  const callerLink = authLinkSnap.exists ? authLinkSnap.data() : null;
-  const callerRole = callerLink?.role;
-  const callerUserId = callerLink?.userId;
-
-  const isSelf = callerUserId === targetUserId;
-  const isPrivileged = callerRole === 'admin' || callerRole === 'gestor' || callerRole === 'lider';
-
-  if (!isSelf && !isPrivileged) {
-    throw new HttpsError('permission-denied', 'Sem permissão para alterar a senha deste usuário.');
-  }
-
-  const targetSnap = await firestore.collection('users').doc(targetUserId).get();
-  if (!targetSnap.exists) {
-    throw new HttpsError('not-found', 'Usuário não encontrado.');
-  }
-
-  const passwordHash = sha256Hex(newPassword);
-  const nowFormatted = new Date().toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-
-  await firestore.collection('users').doc(targetUserId).update({
-    passwordHash,
-    password: FieldValue.delete(),
-    firstAccess: !isSelf,
-    primeiro_acesso: !isSelf,
-    lastPasswordChange: nowFormatted,
-    updatedAt: FieldValue.serverTimestamp()
-  });
-
-  return { success: true, userId: targetUserId, lastPasswordChange: nowFormatted };
 });
