@@ -10,6 +10,11 @@ import { initialPOPs } from '../data/pops';
  * localStorage e sincronização em tempo real com o Firestore. Extraído de
  * App.tsx — mesmo comportamento de antes, só que isolado num hook próprio.
  * `companyId` (Fase 1 — multiempresa): ver comentário em useSectorsState.ts.
+ *
+ * FASE 1 (bug encontrado depois de publicado) — mesma correção de
+ * useAtrsState.ts: `initialPOPs` não entra mais no merge quando o
+ * Firestore responde (senão toda empresa via o catálogo de POPs da ACII
+ * junto com o próprio, duplicado). Ver comentário completo lá.
  */
 export function usePopsState(authReady: boolean, companyId: string | null) {
   const [pops, rawSetPOPs] = useState<POP[]>(() => {
@@ -17,13 +22,7 @@ export function usePopsState(authReady: boolean, companyId: string | null) {
     if (!saved) return initialPOPs;
     try {
       const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed) || parsed.length === 0) return initialPOPs;
-      const initialMap = new Map<string, POP>();
-      initialPOPs.forEach(p => initialMap.set(p.id, p));
-      parsed.forEach((p: POP) => {
-        if (p && p.id) initialMap.set(p.id, p);
-      });
-      return Array.from(initialMap.values());
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialPOPs;
     } catch (e) {
       return initialPOPs;
     }
@@ -54,12 +53,10 @@ export function usePopsState(authReady: boolean, companyId: string | null) {
       snapshot.forEach((doc) => {
         list.push(doc.data() as POP);
       });
-      const map = new Map<string, POP>();
-      initialPOPs.forEach(p => map.set(p.id, p));
-      list.forEach(p => { if (p && p.id) map.set(p.id, p); });
-      const merged = Array.from(map.values());
-      rawSetPOPs(merged);
-      localStorage.setItem('ms-pops', JSON.stringify(merged));
+      // O Firestore é a fonte de verdade a partir daqui — sem mesclar com
+      // initialPOPs (ver comentário na declaração do hook, acima).
+      rawSetPOPs(list);
+      localStorage.setItem('ms-pops', JSON.stringify(list));
     }, (err) => {
       console.warn("Firestore snapshot error (pops):", err);
     });
