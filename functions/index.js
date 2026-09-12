@@ -713,3 +713,127 @@ exports.createCompany = onCall({ region: REGION }, async (request) => {
     throw new HttpsError('internal', `Erro ao criar empresa [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// platformResetPassword — recuperação de senha pra o DONO DA PLATAFORMA
+// ─────────────────────────────────────────────────────────────────────
+// Mesma lacuna que motivou createCompany acima, só que do lado oposto:
+// setPassword (mais acima neste arquivo) exige que quem chama já esteja
+// logado como admin/gestor/lider DA MESMA EMPRESA do usuário-alvo — o que
+// é o comportamento certo pra evitar que uma empresa mexa na senha de
+// outra. O problema é que isso deixa o próprio dono da plataforma sem
+// saída se esquecer a senha de uma empresa em que nunca tem uma conta
+// própria (ex.: uma empresa de teste criada só pra validar o sistema) —
+// não existia NENHUM jeito de recuperar isso pela interface.
+//
+// Esta função resolve exatamente esse ponto cego, com o mesmo padrão de
+// autorização de createCompany: só aceita chamadas do e-mail Google
+// RUNTIME_ADMIN_EMAIL. Localiza a empresa por nome (comparação
+// case-insensitive) ou por companyId direto, reseta a senha do admin
+// daquela empresa (ou de um username específico, se houver mais de um
+// admin e for preciso desambiguar) e devolve o login pra você repassar/
+// usar. Mesma lógica de gravação de setPassword: só o hash SHA-256 é
+// salvo, nunca a senha em texto puro.
+exports.platformResetPassword = onCall({ region: REGION }, async (request) => {
+  try {
+    const callerEmail = (request.auth?.token?.email || '').toLowerCase();
+    if (!request.auth || callerEmail !== RUNTIME_ADMIN_EMAIL) {
+      throw new HttpsError('permission-denied', 'Só o administrador da plataforma pode resetar a senha de uma empresa.');
+    }
+
+    const companyIdInput = String(request.data?.companyId || '').trim();
+    const companyNameInput = String(request.data?.companyName || '').trim();
+    const usernameInput = String(request.data?.username || '').trim().toLowerCase();
+    const newPassword = String(request.data?.newPassword || '');
+
+    if (!companyIdInput && !companyNameInput) {
+      throw new HttpsError('invalid-argument', 'Informe o ID ou o nome da empresa.');
+    }
+    if (!newPassword || newPassword.length < 4) {
+      throw new HttpsError('invalid-argument', 'A nova senha precisa ter pelo menos 4 caracteres.');
+    }
+
+    const firestore = db();
+
+    // Resolve a empresa: por ID direto (mais confiável, se você o tiver
+    // anotado) ou por nome — comparação case-insensitive/sem espaços nas
+    // pontas, já que é comum digitar "empresa teste" quando o nome salvo é
+    // "Empresa Teste". A coleção companies tende a ser pequena (uma por
+    // cliente), então trazer todas e filtrar em memória é mais simples e
+    // seguro que tentar um índice case-insensitive no Firestore.
+    let companyDoc = null;
+    if (companyIdInput) {
+      const directSnap = await firestore.collection('companies').doc(companyIdInput).get();
+      if (directSnap.exists) companyDoc = directSnap;
+    }
+    if (!companyDoc && companyNameInput) {
+      const allCompanies = await firestore.collection('companies').get();
+      const target = companyNameInput.toLowerCase();
+      companyDoc = allCompanies.docs.find(d => String(d.data()?.name || '').trim().toLowerCase() === target) || null;
+    }
+    if (!companyDoc) {
+      throw new HttpsError('not-found', `Nenhuma empresa encontrada com esse ${companyIdInput ? 'ID' : 'nome'}.`);
+    }
+
+    const companyId = companyDoc.id;
+    const companyName = companyDoc.data()?.name || companyId;
+
+    // Localiza a(s) conta(s) admin dessa empresa — reset de senha só se
+    // aplica a admin por essa via (é o cenário real: perdeu acesso ao
+    // primeiro/único login de uma empresa de teste). Se houver mais de um
+    // admin, exige o username pra saber qual escolher, em vez de resetar
+    // "qualquer um" às cegas.
+    let adminsSnap = await firestore.collection('users')
+      .where('companyId', '==', companyId)
+      .where('role', '==', 'admin')
+      .get();
+
+    if (adminsSnap.empty) {
+      throw new HttpsError('not-found', `A empresa "${companyName}" não tem nenhuma conta admin cadastrada.`);
+    }
+
+    let targetDoc;
+    if (adminsSnap.size === 1) {
+      targetDoc = adminsSnap.docs[0];
+    } else if (usernameInput) {
+      targetDoc = adminsSnap.docs.find(d => String(d.data()?.username || '').toLowerCase() === usernameInput);
+      if (!targetDoc) {
+        throw new HttpsError('not-found', `Nenhuma conta admin com o login "${usernameInput}" na empresa "${companyName}".`);
+      }
+    } else {
+      const usernames = adminsSnap.docs.map(d => d.data()?.username).filter(Boolean);
+      throw new HttpsError(
+        'failed-precondition',
+        `A empresa "${companyName}" tem mais de uma conta admin (${usernames.join(', ')}). Informe qual login resetar.`
+      );
+    }
+
+    const passwordHash = sha256Hex(newPassword);
+    const nowFormatted = new Date().toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    await targetDoc.ref.update({
+      passwordHash,
+      password: FieldValue.delete(),
+      firstAccess: true,
+      primeiro_acesso: true,
+      lastPasswordChange: nowFormatted,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    logger.info(`Senha resetada por ${callerEmail}: companyId=${companyId}, username=${targetDoc.data()?.username}`);
+
+    return {
+      success: true,
+      companyId,
+      companyName,
+      username: targetDoc.data()?.username,
+      userId: targetDoc.id
+    };
+  } catch (err) {
+    logger.error('❌ ERRO NA FUNÇÃO PLATFORMRESETPASSWORD:', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', `Erro ao resetar senha [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
+  }
+});

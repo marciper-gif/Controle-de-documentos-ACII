@@ -23,3 +23,10 @@ export const setPasswordCallable = httpsCallable(functions, 'setPassword');
 // Google do dono da plataforma (ver RUNTIME_ADMIN_EMAIL em
 // functions/index.js); qualquer outro chamador recebe permission-denied.
 export const createCompanyCallable = httpsCallable(functions, 'createCompany');
+
+// Reseta a senha do admin de qualquer empresa, mesmo sem o dono da
+// plataforma ter uma conta lá — recuperação pra quando a senha inicial de
+// uma empresa (ex.: empresa de teste) se perde e não há mais nenhuma
+// forma de acessá-la. Mesma restrição de acesso de createCompany:
+// permission-denied pra qualquer chamador que não seja RUNTIME_ADMIN_EMAIL.
+export const platformResetPasswordCallable = httpsCallable(functions, 'platformResetPassword');
