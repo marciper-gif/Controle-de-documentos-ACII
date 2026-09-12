@@ -60,6 +60,7 @@ import SplashScreen from './components/SplashScreen';
 import DocumentsView from './components/DocumentsView';
 import AppLogo from './components/AppLogo';
 import CompanyOnboardingModal from './components/CompanyOnboardingModal';
+import OnboardingChecklist from './components/OnboardingChecklist';
 
 // Firebase Integrations
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -2035,6 +2036,20 @@ export default function App() {
           />
         ) : (
           <>
+            {/* Primeiros Passos — só pra quem pode agir (admin/gestor/lider),
+                some sozinho assim que setor + funcionário + documento existem. */}
+            {!isFullScreen && (currentUser.role === 'admin' || currentUser.role === 'gestor' || currentUser.role === 'lider') && (
+              <OnboardingChecklist
+                companyId={companyId || ''}
+                hasSectors={sectors.length > 0}
+                hasEmployees={employees.length > 0}
+                hasDocuments={pops.length + atrs.length + its.length > 0}
+                onGoToSectors={() => setCurrentView('sectors')}
+                onGoToEmployees={() => setCurrentView('employees')}
+                onCreateDocument={() => handleOpenCreateModal('pop')}
+              />
+            )}
+
             {/* Statistics Widgets */}
         {!isFullScreen && (
           <section className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
