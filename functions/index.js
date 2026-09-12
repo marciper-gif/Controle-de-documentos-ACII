@@ -33,8 +33,18 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 const crypto = require('crypto');
+const mammoth = require('mammoth');
+const pdfParse = require('pdf-parse');
+
+// Chave da API do Gemini (Google AI Studio) — guardada como Secret do
+// Cloud Functions (Secret Manager), NUNCA em código nem em variável de
+// ambiente comum: `firebase functions:secrets:set GEMINI_API_KEY` no
+// Cloud Shell, uma vez, e o valor nunca passa pelo chat/repositório.
+// Usada só por extractDocumentFields (Fase 5 — importar documento real).
+const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 
 // Precisa bater com firestoreDatabaseId em firebase-applet-config.json.
 // Se o banco Firestore for recriado/renomeado, atualizar aqui também
@@ -837,3 +847,185 @@ exports.platformResetPassword = onCall({ region: REGION }, async (request) => {
     throw new HttpsError('internal', `Erro ao resetar senha [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// extractDocumentFields — importar POP/ATR/IT a partir de um documento
+// real já pronto (Fase 5 — aparência/produtividade)
+// ─────────────────────────────────────────────────────────────────────
+// A empresa cadastra o sistema a partir de documentos que já existem no
+// papel/Word — digitar tudo de novo campo por campo é redundante e chato.
+// Esta function recebe o ARQUIVO (.docx ou .pdf, texto real — não
+// imagem/scan), extrai o texto puro (mammoth/pdf-parse, ambos rodando
+// aqui no servidor, nunca no navegador) e pede pro Gemini (Google AI
+// Studio) organizar esse texto solto no formato exato que POP/ATR/IT
+// usam no sistema. O resultado SEMPRE volta pro formulário de
+// criação pra o usuário revisar/corrigir antes de salvar — nunca cria o
+// documento sozinho, sem revisão humana.
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const MAX_IMPORT_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_IMPORT_TEXT_CHARS = 40000; // limite de custo/tamanho do prompt
+
+const IMPORT_SCHEMA_BY_TYPE = {
+  pop: `{
+  "title": string (título do procedimento),
+  "process": string (nome do processo/área, ex: "ADMINISTRATIVO"),
+  "sector": string (setor responsável, se identificável no texto — senão ""),
+  "objective": string (objetivo do procedimento),
+  "applicationField": string[] (a quais áreas/situações o procedimento se aplica),
+  "responsiblePrimary": string (cargo/pessoa responsável principal),
+  "responsibleSupport": string[] (responsáveis de apoio, se houver),
+  "inputs": string[] (entradas do processo),
+  "steps": [{ "title": string, "description": string, "substeps": string[] (opcional, [] se não houver) }] (etapas do procedimento, na ordem do documento),
+  "outputs": string[] (saídas do processo),
+  "performanceIndicators": string[] (indicadores de desempenho, se houver)
+}`,
+  atr: `{
+  "title": string (nome do cargo/função),
+  "sector": string (setor, se identificável no texto — senão ""),
+  "directLeader": string (liderança direta),
+  "indirectLeader": string (liderança indireta, "" se não houver),
+  "summary": string (resumo da função),
+  "detailedTasks": string[] (tarefas detalhadas do cargo),
+  "requirements": {
+    "education": string (formação exigida),
+    "technicalCompetencies": string[] (competências técnicas exigidas),
+    "experience": string (experiência exigida),
+    "skills": string[] (habilidades esperadas),
+    "attitudes": string[] (atitudes/comportamentos esperados)
+  }
+}`,
+  it: `{
+  "title": string (título da instrução de trabalho),
+  "sector": string (setor, se identificável no texto — senão ""),
+  "objective": string (objetivo da instrução),
+  "responsible": string (responsável pela execução),
+  "steps": string[] (passo a passo, na ordem do documento)
+}`
+};
+
+function buildImportPrompt(docType, text) {
+  return `Você é um assistente que organiza documentos administrativos reais (escritos por pessoas, formatação livre, às vezes desorganizada) em um formato estruturado.
+
+Abaixo está o texto extraído de um documento real fornecido por uma empresa. Extraia as informações e devolva SOMENTE um objeto JSON válido, sem nenhum texto antes ou depois, seguindo EXATAMENTE este formato:
+
+${IMPORT_SCHEMA_BY_TYPE[docType]}
+
+Regras:
+- Use o texto original do documento sempre que possível — não invente informação que não está no texto.
+- Se um campo não for encontrado no texto, devolva string vazia ("") ou array vazio ([]); nunca omita o campo do JSON.
+- Nunca inclua comentários, markdown (crases) ou qualquer texto fora do JSON.
+- Responda em português.
+
+Texto do documento:
+"""
+${text}
+"""`;
+}
+
+// O Gemini normalmente respeita responseMimeType=application/json, mas
+// esta função tolera também uma resposta com texto/markdown ao redor
+// (ex.: ```json ... ```), procurando o primeiro bloco { ... } válido.
+function parseJsonLoose(text) {
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    // segue pra tentativa abaixo
+  }
+  const match = text.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      return JSON.parse(match[0]);
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
+exports.extractDocumentFields = onCall(
+  { region: REGION, secrets: [GEMINI_API_KEY], timeoutSeconds: 120, memory: '512MiB' },
+  async (request) => {
+    try {
+      if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'Sessão inválida. Recarregue a página e tente novamente.');
+      }
+
+      const docType = String(request.data?.docType || '');
+      if (!IMPORT_SCHEMA_BY_TYPE[docType]) {
+        throw new HttpsError('invalid-argument', 'Tipo de documento inválido.');
+      }
+
+      const fileName = String(request.data?.fileName || '');
+      const fileBase64 = String(request.data?.fileBase64 || '');
+      if (!fileBase64) {
+        throw new HttpsError('invalid-argument', 'Nenhum arquivo enviado.');
+      }
+
+      const buffer = Buffer.from(fileBase64, 'base64');
+      if (buffer.length > MAX_IMPORT_FILE_BYTES) {
+        throw new HttpsError('invalid-argument', `Arquivo muito grande (limite ${MAX_IMPORT_FILE_BYTES / 1024 / 1024}MB).`);
+      }
+
+      const ext = (fileName.split('.').pop() || '').toLowerCase();
+      let text = '';
+      if (ext === 'docx') {
+        const result = await mammoth.extractRawText({ buffer });
+        text = result.value || '';
+      } else if (ext === 'pdf') {
+        const result = await pdfParse(buffer);
+        text = result.text || '';
+      } else {
+        throw new HttpsError('invalid-argument', 'Formato não suportado. Envie um arquivo .docx ou .pdf.');
+      }
+
+      text = text.trim();
+      if (!text) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Não encontrei nenhum texto nesse arquivo — ele pode ser uma imagem/scan em vez de texto real. Preencha manualmente ou envie a versão original do documento.'
+        );
+      }
+      if (text.length > MAX_IMPORT_TEXT_CHARS) {
+        text = text.slice(0, MAX_IMPORT_TEXT_CHARS);
+      }
+
+      const prompt = buildImportPrompt(docType, text);
+      const apiKey = GEMINI_API_KEY.value();
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: 0.2
+            }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        logger.error(`Gemini API respondeu ${response.status}:`, errBody);
+        throw new HttpsError('internal', `Falha ao consultar a IA (status ${response.status}). Tente novamente em instantes.`);
+      }
+
+      const responseJson = await response.json();
+      const rawText = responseJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const parsed = parseJsonLoose(rawText);
+      if (!parsed) {
+        logger.error('Resposta da IA não era um JSON válido:', rawText.slice(0, 500));
+        throw new HttpsError('internal', 'A IA não devolveu os dados num formato reconhecível. Tente novamente ou preencha manualmente.');
+      }
+
+      logger.info(`extractDocumentFields OK: uid=${request.auth.uid}, docType=${docType}, fileName=${fileName}`);
+      return { success: true, data: parsed };
+    } catch (err) {
+      logger.error('❌ ERRO NA FUNÇÃO EXTRACTDOCUMENTFIELDS:', err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', `Erro ao importar documento [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
+    }
+  }
+);

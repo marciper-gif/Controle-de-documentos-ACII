@@ -30,3 +30,11 @@ export const createCompanyCallable = httpsCallable(functions, 'createCompany');
 // forma de acessá-la. Mesma restrição de acesso de createCompany:
 // permission-denied pra qualquer chamador que não seja RUNTIME_ADMIN_EMAIL.
 export const platformResetPasswordCallable = httpsCallable(functions, 'platformResetPassword');
+
+// Lê um arquivo .docx/.pdf de um POP/ATR/IT real já pronto e devolve os
+// campos organizados no formato do sistema, pra pré-preencher o
+// formulário de criação (o usuário sempre revisa/edita antes de salvar —
+// ver comentário grande em functions/index.js). timeout mais alto que o
+// padrão porque a extração de texto + chamada ao Gemini pode levar
+// alguns segundos a mais que uma Cloud Function comum.
+export const extractDocumentFieldsCallable = httpsCallable(functions, 'extractDocumentFields', { timeout: 120000 });
