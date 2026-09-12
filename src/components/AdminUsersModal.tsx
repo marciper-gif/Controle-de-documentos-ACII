@@ -1544,9 +1544,10 @@ export default function AdminUsersModal({
                     />
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1.5">
-                    Usada hoje só no emblema padrão do logo (quando não há URL de logo própria) e no
-                    cabeçalho do sistema. Retingir o app inteiro com esta cor é um trabalho maior,
-                    de design, que fica pra mais adiante.
+                    Usada no emblema padrão do logo (quando não há URL de logo própria), no
+                    cabeçalho do sistema e nos principais botões de ação do sistema (Salvar,
+                    Criar, Confirmar). Cores de status (selos "Ativo", campos em foco) continuam
+                    padronizadas de propósito, em qualquer empresa.
                   </p>
                 </div>
               </div>
