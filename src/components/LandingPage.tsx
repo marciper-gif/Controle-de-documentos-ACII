@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, FileText, Archive, ShieldCheck, Building2, Users, CheckCircle2, Mail } from 'lucide-react';
+import { BookOpen, Briefcase, FileText, Archive, ShieldCheck, Building2, Users, CheckCircle2, Mail, Layers, AlertTriangle, Search } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────
 // Fase 4 (rebranding) — página pública de apresentação do produto.
@@ -87,6 +87,80 @@ export default function LandingPage() {
             <Mail className="w-4 h-4" />
             Falar com um especialista
           </a>
+        </div>
+      </section>
+
+      {/* Preview do sistema — Fase 5 (aparência): quem decide contratar
+          nunca via uma tela sequer do produto, só ícones genéricos e
+          texto. Reconstrução fiel do visual real do dashboard (mesmas
+          classes/cores dos componentes de verdade — src/App.tsx), com uma
+          empresa e dados FICTÍCIOS ("Empresa Modelo"), pra nunca expor
+          documentos/dados reais de um cliente numa página pública. */}
+      <section className="max-w-5xl mx-auto px-6 pb-16">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
+          {/* Barra de topo simulando o cabeçalho do sistema */}
+          <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white font-black text-xs shrink-0">EM</div>
+            <div className="min-w-0">
+              <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tight leading-tight truncate">Empresa Modelo Ltda</p>
+              <p className="text-[9px] text-emerald-600 dark:text-emerald-450 font-black uppercase tracking-widest leading-none">Normatiza • Controle de Documentos e Processos</p>
+            </div>
+          </div>
+
+          <div className="p-5 sm:p-6 space-y-5">
+            {/* Cards de estatística — mesmo padrão visual do dashboard real.
+                Classes de cor escritas por extenso (não montadas com
+                template string) de propósito: o Tailwind só gera CSS pras
+                classes que consegue achar como texto literal no código —
+                uma classe montada em runtime (`text-${cor}-600`) nunca
+                aparece no CSS final. */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                { label: 'Total POPs', value: 24, icon: Layers, valueClass: 'text-sky-600 dark:text-sky-400', badgeClass: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
+                { label: 'Total ATRs', value: 18, icon: Briefcase, valueClass: 'text-indigo-600 dark:text-indigo-400', badgeClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' },
+                { label: 'Setores Ativos', value: 6, icon: Building2, valueClass: 'text-amber-600 dark:text-amber-400', badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+                { label: 'Revisões Pendentes', value: 2, icon: AlertTriangle, valueClass: 'text-rose-600 dark:text-rose-400', badgeClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' }
+              ].map(card => {
+                const Icon = card.icon;
+                return (
+                  <div key={card.label} className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-slate-900/40 flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{card.label}</span>
+                      <h4 className={`text-xl font-black font-display mt-0.5 ${card.valueClass}`}>{card.value}</h4>
+                    </div>
+                    <div className={`p-1.5 rounded-lg ${card.badgeClass}`}>
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Busca simulada */}
+            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-xs">
+              <Search className="w-3.5 h-3.5" />
+              Pesquisar por título, código, palavra-chave, tarefas...
+            </div>
+
+            {/* Documento de exemplo */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <div className="px-4 py-3 bg-sky-500/5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Procedimento Operacional Padrão</span>
+                  <h5 className="text-sm font-black text-slate-900 dark:text-white">POP-014 · Recebimento de Mercadorias</h5>
+                </div>
+                <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-2 py-1 rounded-lg shrink-0">Setor: Produção</span>
+              </div>
+              <div className="p-4 space-y-2.5 text-xs text-slate-600 dark:text-slate-300">
+                <p><span className="font-bold text-slate-800 dark:text-slate-200">Objetivo: </span>Padronizar o recebimento de mercadorias no setor de Produção, garantindo conferência e registro adequados.</p>
+                <ol className="space-y-1.5 list-decimal list-inside">
+                  <li>Conferência da nota fiscal com o pedido de compra</li>
+                  <li>Inspeção visual do lote recebido</li>
+                  <li>Registro da entrada no sistema de estoque</li>
+                </ol>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
