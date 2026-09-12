@@ -41,8 +41,7 @@ import {
   Cloud,
   Download,
   Loader2,
-  Archive,
-  UploadCloud
+  Archive
 } from 'lucide-react';
 
 import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry, DocumentTypesSettings, DEFAULT_DOCUMENT_TYPES_SETTINGS } from './types';
@@ -67,7 +66,7 @@ import OnboardingChecklist from './components/OnboardingChecklist';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { onSnapshot, collection, doc, getDoc, query, where } from 'firebase/firestore';
 import { auth, db, ensureAnonymousAuth } from './lib/firebase';
-import { linkGoogleUserCallable, extractDocumentFieldsCallable } from './lib/functions';
+import { linkGoogleUserCallable } from './lib/functions';
 import { hashPassword } from './lib/userManagement';
 import {
   seedDatabaseIfEmpty,
@@ -998,12 +997,6 @@ export default function App() {
   // — por padrão (desmarcado) o comportamento continua o mesmo de sempre.
   const [keepRevisionOnEdit, setKeepRevisionOnEdit] = useState(false);
 
-  // Importar de um arquivo real (Fase 5) — ver extractDocumentFields em
-  // functions/index.js e applyExtractedFields/handleImportDocumentFile
-  // logo abaixo, perto de handleOpenCreateModal.
-  const [isImportingDoc, setIsImportingDoc] = useState(false);
-  const [importDocError, setImportDocError] = useState<string | null>(null);
-
   // POP Specific Form Fields
   const [formObjective, setFormObjective] = useState('');
   const [formAppField, setFormAppField] = useState('');
@@ -1492,106 +1485,6 @@ export default function App() {
       setFormId(nextSequentialId('IT', its));
     }
     setIsModalOpen(true);
-  };
-
-  // Lê um arquivo (base64) pra enviar à Cloud Function — FileReader é a
-  // API padrão do navegador pra isso, sem precisar de nenhuma lib extra.
-  const readFileAsBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        // reader.result vem como "data:<mime>;base64,<dados>" — a Cloud
-        // Function só precisa da parte depois da vírgula.
-        resolve(result.split(',')[1] || '');
-      };
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // Aplica os campos que a IA extraiu do arquivo real (extractDocumentFields,
-  // functions/index.js) no formulário de criação já aberto — o usuário
-  // sempre revisa/edita antes de salvar, nada é gravado automaticamente
-  // aqui. `sector` tenta casar (sem diferenciar maiúsculas/acentos exatos)
-  // com um setor JÁ CADASTRADO na empresa; sem casar com nenhum, mantém o
-  // setor que já estava selecionado no formulário, em vez de um valor que
-  // não existe no <select>.
-  const applyExtractedFields = (data: any, type: 'pop' | 'atr' | 'it') => {
-    if (data?.title) setFormTitle(String(data.title));
-    if (data?.sector) {
-      const wanted = String(data.sector).trim().toLowerCase();
-      const match = sectors.find(s => s.name.trim().toLowerCase() === wanted);
-      if (match) setFormSector(match.name);
-    }
-
-    if (type === 'atr') {
-      if (data?.directLeader) setFormDirectLeader(String(data.directLeader));
-      if (data?.indirectLeader) setFormIndirectLeader(String(data.indirectLeader));
-      if (data?.summary) setFormSummary(String(data.summary));
-      if (Array.isArray(data?.detailedTasks) && data.detailedTasks.length) {
-        setFormTasks(data.detailedTasks.join('\n'));
-      }
-      const req = data?.requirements || {};
-      if (req.education) setFormEducation(String(req.education));
-      if (Array.isArray(req.technicalCompetencies) && req.technicalCompetencies.length) {
-        setFormTechnicalComp(req.technicalCompetencies.join('\n'));
-      }
-      if (req.experience) setFormExperience(String(req.experience));
-      if (Array.isArray(req.skills) && req.skills.length) setFormSkills(req.skills.join(', '));
-      if (Array.isArray(req.attitudes) && req.attitudes.length) setFormAttitudes(req.attitudes.join(', '));
-    } else if (type === 'it') {
-      if (data?.objective) setFormObjective(String(data.objective));
-      if (data?.responsible) setFormResponsiblePrimary(String(data.responsible));
-      if (Array.isArray(data?.steps) && data.steps.length) setFormSteps(data.steps.join('\n'));
-    } else {
-      if (data?.process) setFormSectorProcess(String(data.process));
-      if (data?.objective) setFormObjective(String(data.objective));
-      if (Array.isArray(data?.applicationField) && data.applicationField.length) {
-        setFormAppField(data.applicationField.join(', '));
-      }
-      if (data?.responsiblePrimary) setFormResponsiblePrimary(String(data.responsiblePrimary));
-      if (Array.isArray(data?.responsibleSupport) && data.responsibleSupport.length) {
-        setFormResponsibleSupport(data.responsibleSupport.join(', '));
-      }
-      if (Array.isArray(data?.inputs) && data.inputs.length) setFormInputs(data.inputs.join('\n'));
-      if (Array.isArray(data?.outputs) && data.outputs.length) setFormOutputs(data.outputs.join('\n'));
-      if (Array.isArray(data?.performanceIndicators) && data.performanceIndicators.length) {
-        setFormIndicators(data.performanceIndicators.join('\n'));
-      }
-      if (Array.isArray(data?.steps) && data.steps.length) {
-        const stepStr = data.steps.map((s: any) => {
-          const subs = Array.isArray(s?.substeps) && s.substeps.length ? `:${s.substeps.join(',')}` : '';
-          return `${s?.title || ''}:${s?.description || ''}${subs}`;
-        }).join('; ');
-        setFormSteps(stepStr);
-      }
-    }
-  };
-
-  const handleImportDocumentFile = async (file: File) => {
-    setImportDocError(null);
-    const ext = (file.name.split('.').pop() || '').toLowerCase();
-    if (!['docx', 'pdf'].includes(ext)) {
-      setImportDocError('Envie um arquivo .docx (Word) ou .pdf com texto — não uma imagem/scan.');
-      return;
-    }
-    if (file.size > 8 * 1024 * 1024) {
-      setImportDocError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). O limite é 8MB.`);
-      return;
-    }
-
-    setIsImportingDoc(true);
-    try {
-      const fileBase64 = await readFileAsBase64(file);
-      const res = await extractDocumentFieldsCallable({ fileBase64, fileName: file.name, docType: formDocType });
-      const data = (res.data as any)?.data;
-      if (data) applyExtractedFields(data, formDocType);
-    } catch (err: any) {
-      setImportDocError(err?.message || 'Falha ao importar o documento. Preencha os campos manualmente.');
-    } finally {
-      setIsImportingDoc(false);
-    }
   };
 
   // Filters mapping
@@ -3631,50 +3524,7 @@ export default function App() {
                     </div>
                   </div>
                 )}
-
-                {/* Importar de um documento real já pronto (Fase 5) — só faz
-                    sentido pra documento NOVO; editar já tem o conteúdo. */}
-                {editingId === null && (
-                  <div className="p-4 bg-[var(--brand-primary)]/5 border border-dashed border-[var(--brand-primary)]/30 rounded-xl">
-                    <label
-                      htmlFor="import-doc-file-input"
-                      className={`flex items-center justify-between gap-3 ${isImportingDoc ? 'cursor-wait' : 'cursor-pointer'}`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="p-2 bg-[var(--brand-primary)]/10 rounded-lg text-[var(--brand-primary)] shrink-0">
-                          {isImportingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            {isImportingDoc ? 'Lendo o documento e organizando os campos...' : 'Já tem esse documento pronto? Importe de um arquivo'}
-                          </p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                            Word (.docx) ou PDF com texto — os campos abaixo são preenchidos automaticamente pra você revisar antes de salvar.
-                          </p>
-                        </div>
-                      </div>
-                      {!isImportingDoc && (
-                        <span className="text-2xs font-black uppercase text-[var(--brand-primary)] shrink-0">Escolher arquivo</span>
-                      )}
-                    </label>
-                    <input
-                      id="import-doc-file-input"
-                      type="file"
-                      accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      disabled={isImportingDoc}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = '';
-                        if (file) handleImportDocumentFile(file);
-                      }}
-                      className="hidden"
-                    />
-                    {importDocError && (
-                      <p className="text-2xs text-rose-500 mt-2">{importDocError}</p>
-                    )}
-                  </div>
-                )}
-
+                
                  {/* ID & Title */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
