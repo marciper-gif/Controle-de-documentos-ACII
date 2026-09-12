@@ -1,4 +1,4 @@
-import { useState, FormEvent, useMemo } from 'react';
+import { useState, useEffect, FormEvent, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key,
@@ -71,6 +71,22 @@ export default function AdminUsersModal({
   const [brandingDraft, setBrandingDraft] = useState(companyBranding);
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+
+  // BUG DE CROSS-TENANT ENCONTRADO EM TESTE (mesma classe já corrigida em
+  // vários outros lugares nesta fase — ver comentário grande no efeito de
+  // App.tsx que assina `companies/{companyId}`): como este modal nunca é
+  // desmontado (fica sempre no DOM, só o `isOpen` muda), o `useState`
+  // acima só captura `companyBranding` uma vez, na primeira montagem. Ao
+  // trocar de empresa no mesmo navegador sem recarregar a página,
+  // `brandingDraft` continuava com nome/logo/cor da empresa ANTERIOR —
+  // e ao salvar QUALQUER campo (ex.: só a cor), o objeto inteiro
+  // (incluindo o nome antigo, errado) era gravado por cima do documento
+  // da empresa nova. Foi exatamente isso que aconteceu: uma empresa nova
+  // apareceu com o nome da ACII depois de mexer só na cor. Corrigido
+  // ressincronizando o rascunho sempre que a prop mudar de verdade.
+  useEffect(() => {
+    setBrandingDraft(companyBranding);
+  }, [companyBranding]);
 
   // Envio direto de arquivo pro logo (Identidade Visual) — alternativa ao
   // campo de URL logo abaixo, pra quem não tem/não sabe hospedar uma

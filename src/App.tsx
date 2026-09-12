@@ -556,6 +556,15 @@ export default function App() {
     // Cloud Functions login/linkGoogleUser.
     if (!db || !authReady || !companyId) return;
 
+    // Mesmo bug de classe já corrigido abaixo pra `users` (ver comentário
+    // grande logo ali): ao trocar de empresa no mesmo navegador sem recarregar
+    // a página, `companyBranding` ficava com os dados da empresa ANTERIOR
+    // até o snapshot de `companies/{companyId}` da empresa nova responder —
+    // uma janela pequena, mas real, em que a tela (e o AdminUsersModal, via
+    // brandingDraft) exibia nome/logo/cor de outra empresa. Limpo aqui, no
+    // início do efeito, antes até de assinar o documento da empresa nova.
+    setCompanyBranding({ name: '', logoUrl: '', primaryColor: '' });
+
     // Seed database if empty on load
     seedDatabaseIfEmpty();
 
