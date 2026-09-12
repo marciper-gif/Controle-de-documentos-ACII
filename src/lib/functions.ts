@@ -30,3 +30,12 @@ export const createCompanyCallable = httpsCallable(functions, 'createCompany');
 // forma de acessá-la. Mesma restrição de acesso de createCompany:
 // permission-denied pra qualquer chamador que não seja RUNTIME_ADMIN_EMAIL.
 export const platformResetPasswordCallable = httpsCallable(functions, 'platformResetPassword');
+
+// "Esqueci minha senha" self-service — a conta precisa ter e-mail
+// cadastrado (users/{id}.email, editável em Painel Admin → Usuários).
+// Sem login/sessão nenhuma: é exatamente o cenário de "não consigo
+// entrar". requestPassword manda o e-mail com o link; confirmPassword
+// (chamado pela página /resetar-senha) efetiva a nova senha com o token
+// daquele link.
+export const requestPasswordResetCallable = httpsCallable(functions, 'requestPasswordReset');
+export const confirmPasswordResetCallable = httpsCallable(functions, 'confirmPasswordReset');

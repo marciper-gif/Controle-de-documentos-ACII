@@ -205,6 +205,7 @@ export default function AdminUsersModal({
   // Form fields
   const [formName, setFormName] = useState('');
   const [formUsername, setFormUsername] = useState('');
+  const [formEmail, setFormEmail] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formRole, setFormRole] = useState<'admin' | 'gestor' | 'colaborador' | 'lider'>('colaborador');
   const [formEmployeeId, setFormEmployeeId] = useState<string>('');
@@ -296,6 +297,7 @@ export default function AdminUsersModal({
     setIsAddingNew(true);
     setFormName(user.name);
     setFormUsername(user.username);
+    setFormEmail(user.email || '');
     // A senha não fica mais guardada em texto puro, então o campo começa
     // vazio: deixar em branco mantém a senha atual, digitar algo a troca.
     setFormPassword('');
@@ -312,6 +314,7 @@ export default function AdminUsersModal({
     setEditingUserId(null);
     setFormName('');
     setFormUsername('');
+    setFormEmail('');
     setFormPassword('');
     setFormRole('colaborador');
     setFormEmployeeId('');
@@ -421,6 +424,7 @@ export default function AdminUsersModal({
             ...u,
             name: formName.trim(),
             username: formUsername.trim(),
+            email: formEmail.trim() || undefined,
             passwordHash: passHash || u.passwordHash,
             role: formRole,
             employeeId: formEmployeeId || undefined,
@@ -445,6 +449,7 @@ export default function AdminUsersModal({
         id: `user-${Date.now()}`,
         name: formName.trim(),
         username: formUsername.trim(),
+        email: formEmail.trim() || undefined,
         passwordHash: passHash,
         role: formRole,
         employeeId: formEmployeeId || undefined,
@@ -1867,6 +1872,17 @@ export default function AdminUsersModal({
                         onChange={e => setFormUsername(e.target.value)}
                         placeholder="Ex: joao.silva"
                         className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-3xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 pl-1">E-mail (opcional — necessário pra "Esqueci minha senha")</label>
+                      <input
+                        type="email"
+                        value={formEmail}
+                        onChange={e => setFormEmail(e.target.value)}
+                        placeholder="Ex: joao.silva@empresa.com"
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
                       />
                     </div>
 

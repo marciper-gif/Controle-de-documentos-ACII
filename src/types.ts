@@ -158,6 +158,7 @@ export interface UserAccount {
   companyId?: CompanyId; // opcional só pra não quebrar contas antigas ainda não migradas (ver migrate-add-company-id.js) — tratado como DEFAULT_COMPANY_ID onde lido
   username: string;
   name: string;
+  email?: string; // opcional — só existe pra quem cadastrou; necessário pra "Esqueci minha senha" self-service (ver requestPasswordReset, functions/index.js)
   password?: string;
   passwordHash?: string;
   role: 'admin' | 'gestor' | 'colaborador' | 'lider';

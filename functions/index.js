@@ -33,8 +33,20 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+
+// Senha de app do Gmail usado pra ENVIAR e-mail transacional (link de
+// "esqueci minha senha") — guardada como Secret do Cloud Functions
+// (Secret Manager), nunca em código: `firebase functions:secrets:set
+// GMAIL_APP_PASSWORD` no Cloud Shell, uma vez, colando ali o valor (não
+// a senha normal da conta Google — é uma "Senha de app" de 16
+// caracteres, gerada em myaccount.google.com/apppasswords, exclusiva
+// pra isso e revogável a qualquer momento sem afetar o login normal).
+// Usada só por requestPasswordReset, mais abaixo.
+const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 
 // Precisa bater com firestoreDatabaseId em firebase-applet-config.json.
 // Se o banco Firestore for recriado/renomeado, atualizar aqui também
@@ -428,6 +440,17 @@ exports.login = onCall({ region: REGION }, async (request) => {
 });
 
 const RUNTIME_ADMIN_EMAIL = 'marciper@gmail.com';
+
+// "Esqueci minha senha" self-service (recuperação por e-mail) — ver
+// requestPasswordReset/confirmPasswordReset mais abaixo, perto do fim
+// deste arquivo.
+const GMAIL_SENDER_EMAIL = 'marciper@gmail.com';
+// Domínio de produção do front-end — usado só pra montar o link que vai
+// dentro do e-mail de redefinição. Atualizar aqui se o domínio mudar.
+const APP_BASE_URL = 'https://controle-de-documentos-acii.vercel.app';
+const RESET_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutos
+const RESET_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const RESET_ATTEMPT_MAX = 5; // mesmo raciocínio de LOGIN_ATTEMPT_MAX acima, mas mais restrito: pedir e-mail repetido é mais barato de abusar que tentar senha
 
 /**
  * linkGoogleUser()
@@ -835,5 +858,187 @@ exports.platformResetPassword = onCall({ region: REGION }, async (request) => {
     logger.error('❌ ERRO NA FUNÇÃO PLATFORMRESETPASSWORD:', err);
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('internal', `Erro ao resetar senha [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// "Esqueci minha senha" — recuperação self-service por e-mail
+// ─────────────────────────────────────────────────────────────────────
+// Motivação de negócio (não só técnica): o modelo de venda em volume, com
+// pouco suporte individual por empresa, só funciona se cada admin
+// consegue recuperar a própria senha sozinho. Antes disso, só existiam
+// dois caminhos quando um admin esquecia a senha: outro admin/gestor da
+// MESMA empresa resetar (setPassword acima), ou — se ele fosse o único
+// admin — não tinha jeito nenhum, a não ser platformResetPassword (só
+// você, dono da plataforma, consegue chamar).
+//
+// Fluxo: requestPasswordReset (login -> gera um token de uso único,
+// válido por 30min, manda por e-mail) -> usuário abre o link
+// (/resetar-senha?token=...) -> confirmPasswordReset (token + nova
+// senha -> valida e efetiva a troca). Nenhuma das duas exige estar
+// logado — é exatamente o cenário de "não consigo entrar".
+//
+// Exige e-mail cadastrado na conta (users/{id}.email, opcional — ver
+// AdminUsersModal.tsx). Contas sem e-mail cadastrado recebem uma
+// mensagem clara dizendo isso, em vez de ficar esperando um e-mail que
+// nunca chega.
+async function findUserDocByUsername(firestore, username) {
+  const usersRef = firestore.collection('users');
+  const usernameLower = username.toLowerCase();
+  const cpfDigits = username.replace(/\D/g, '');
+
+  let snap = await usersRef.where('username', '==', username).limit(1).get();
+  if (snap.empty && username !== usernameLower) {
+    snap = await usersRef.where('username', '==', usernameLower).limit(1).get();
+  }
+  if (snap.empty && cpfDigits) {
+    snap = await usersRef.where('username', '==', cpfDigits).limit(1).get();
+  }
+  if (!snap.empty) return snap.docs[0];
+
+  if (username) {
+    const directDoc = await usersRef.doc(username).get();
+    if (directDoc.exists) return directDoc;
+  }
+  return null;
+}
+
+exports.requestPasswordReset = onCall({ region: REGION, secrets: [GMAIL_APP_PASSWORD] }, async (request) => {
+  const username = String(request.data?.username || '').trim();
+  try {
+    if (!username) {
+      throw new HttpsError('invalid-argument', 'Informe seu usuário/CPF.');
+    }
+
+    const firestore = db();
+    const usernameLower = username.toLowerCase();
+
+    // Mesmo limitador de tentativas do login (login_attempts), só que numa
+    // coleção própria — pedir reenvio de e-mail em excesso é um vetor de
+    // abuso diferente (spam pro dono da conta), não força bruta de senha.
+    const attemptsRef = firestore.collection('password_reset_attempts').doc(usernameLower || 'desconhecido');
+    const attemptsSnap = await attemptsRef.get();
+    const now = Date.now();
+    if (attemptsSnap.exists) {
+      const data = attemptsSnap.data();
+      if (data.count >= RESET_ATTEMPT_MAX && data.firstAttemptAt && (now - data.firstAttemptAt) < RESET_ATTEMPT_WINDOW_MS) {
+        throw new HttpsError('resource-exhausted', 'Muitos pedidos de redefinição. Aguarde alguns minutos e tente novamente.');
+      }
+    }
+    let count = 1;
+    let firstAttemptAt = now;
+    if (attemptsSnap.exists) {
+      const data = attemptsSnap.data();
+      if (data.firstAttemptAt && (now - data.firstAttemptAt) < RESET_ATTEMPT_WINDOW_MS) {
+        count = (data.count || 0) + 1;
+        firstAttemptAt = data.firstAttemptAt;
+      }
+    }
+    await attemptsRef.set({ count, firstAttemptAt });
+
+    const userDoc = await findUserDocByUsername(firestore, username);
+    if (!userDoc) {
+      // Mesmo padrão de mensagem do login (exports.login já revela
+      // "usuário não encontrado" — usernames não são tratados como
+      // segredo neste sistema, só a senha é).
+      throw new HttpsError('not-found', 'Login não encontrado. Verifique o CPF/usuário informado.');
+    }
+
+    const userData = userDoc.data();
+    const email = String(userData.email || '').trim();
+    if (!email) {
+      return {
+        success: false,
+        reason: 'no-email',
+        message: 'Essa conta não tem e-mail cadastrado. Peça para o administrador da sua empresa resetar sua senha.'
+      };
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    await firestore.collection('password_reset_tokens').doc(token).set({
+      userId: userDoc.id,
+      companyId: userData.companyId || DEFAULT_COMPANY_ID,
+      email,
+      createdAt: now,
+      expiresAt: now + RESET_TOKEN_TTL_MS,
+      used: false
+    });
+
+    const resetLink = `${APP_BASE_URL}/resetar-senha?token=${token}`;
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: GMAIL_SENDER_EMAIL, pass: GMAIL_APP_PASSWORD.value() }
+    });
+    await transporter.sendMail({
+      from: `Normatiza <${GMAIL_SENDER_EMAIL}>`,
+      to: email,
+      subject: 'Redefinição de senha — Normatiza',
+      text: `Olá, ${userData.name || ''}!\n\nRecebemos um pedido para redefinir a senha da sua conta (login: ${userData.username}) no Normatiza.\n\nClique no link abaixo para escolher uma nova senha (válido por 30 minutos):\n${resetLink}\n\nSe você não pediu isso, ignore este e-mail — sua senha continua a mesma.`,
+      html: `<p>Olá, ${userData.name || ''}!</p><p>Recebemos um pedido para redefinir a senha da sua conta (login: <strong>${userData.username}</strong>) no Normatiza.</p><p><a href="${resetLink}">Clique aqui para escolher uma nova senha</a> (válido por 30 minutos).</p><p>Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.</p>`
+    });
+
+    logger.info(`Pedido de reset de senha enviado: userId=${userDoc.id}, username=${userData.username}`);
+    return { success: true, message: `Enviamos um link de redefinição para ${email.replace(/^(.{2}).*(@.*)$/, '$1***$2')}.` };
+  } catch (err) {
+    logger.error('❌ ERRO NA FUNÇÃO REQUESTPASSWORDRESET:', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', `Erro ao pedir redefinição de senha [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
+  }
+});
+
+exports.confirmPasswordReset = onCall({ region: REGION }, async (request) => {
+  try {
+    const token = String(request.data?.token || '').trim();
+    const newPassword = String(request.data?.newPassword || '');
+    if (!token || !newPassword) {
+      throw new HttpsError('invalid-argument', 'Dados incompletos.');
+    }
+    if (newPassword.length < 4) {
+      throw new HttpsError('invalid-argument', 'A senha precisa ter pelo menos 4 caracteres.');
+    }
+
+    const firestore = db();
+    const tokenRef = firestore.collection('password_reset_tokens').doc(token);
+    const tokenSnap = await tokenRef.get();
+    if (!tokenSnap.exists) {
+      throw new HttpsError('not-found', 'Link inválido ou já utilizado. Peça um novo link de redefinição.');
+    }
+    const tokenData = tokenSnap.data();
+    if (tokenData.used) {
+      throw new HttpsError('failed-precondition', 'Este link já foi usado. Peça um novo link de redefinição.');
+    }
+    if (Date.now() > tokenData.expiresAt) {
+      throw new HttpsError('deadline-exceeded', 'Este link expirou (validade de 30 minutos). Peça um novo link de redefinição.');
+    }
+
+    const userRef = firestore.collection('users').doc(tokenData.userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'Conta não encontrada.');
+    }
+
+    const passwordHash = sha256Hex(newPassword);
+    const nowFormatted = new Date().toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    await userRef.update({
+      passwordHash,
+      password: FieldValue.delete(),
+      firstAccess: false,
+      primeiro_acesso: false,
+      lastPasswordChange: nowFormatted,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    // Token de uso único — marcado como usado (não apagado, fica como
+    // registro/auditoria de quando cada redefinição aconteceu).
+    await tokenRef.update({ used: true, usedAt: Date.now() });
+
+    logger.info(`Senha redefinida via self-service: userId=${tokenData.userId}`);
+    return { success: true, username: userSnap.data()?.username };
+  } catch (err) {
+    logger.error('❌ ERRO NA FUNÇÃO CONFIRMPASSWORDRESET:', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', `Erro ao redefinir senha [${err.code || 'ERRO'}]: ${err.message || 'Erro inesperado'}`);
   }
 });

@@ -126,6 +126,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // "Esqueci minha senha" self-service — password_reset_attempts (limite
+    // de pedidos por login, mesmo raciocínio de login_attempts acima) e
+    // password_reset_tokens (o token em si, que É a autenticação daquele
+    // pedido de redefinição — não pode ser lido nem manipulado pelo
+    // cliente de jeito nenhum). Só requestPasswordReset/
+    // confirmPasswordReset (Admin SDK) tocam nessas duas coleções.
+    match /password_reset_attempts/{attemptId} {
+      allow read, write: if false;
+    }
+    match /password_reset_tokens/{token} {
+      allow read, write: if false;
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // companies: registro de cada empresa (tenant) do sistema. Leitura só
     // da PRÓPRIA empresa (ninguém precisa enxergar o nome/logo de outro

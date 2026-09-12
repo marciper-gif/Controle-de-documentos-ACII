@@ -1,10 +1,11 @@
 import { useState, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, User, Eye, EyeOff, ShieldAlert, LogIn, Shield } from 'lucide-react';
+import { Lock, User, Eye, EyeOff, ShieldAlert, LogIn, Shield, Mail, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { UserAccount } from '../types';
 import { fazerLogin } from '../lib/userManagement';
+import { requestPasswordResetCallable } from '../lib/functions';
 import TrocaSenha from './TrocaSenha';
 
 interface LoginViewProps {
@@ -22,6 +23,35 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
 
   // First access password change state
   const [pendingUser, setPendingUser] = useState<UserAccount | null>(null);
+
+  // "Esqueci minha senha" self-service (ver requestPasswordReset,
+  // functions/index.js) — card separado, alternado com o de login normal.
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const handleForgotSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setForgotMessage(null);
+    if (!forgotUsername.trim()) return;
+    setForgotLoading(true);
+    try {
+      const res = await requestPasswordResetCallable({ username: forgotUsername.trim() });
+      const data = res.data as { success: boolean; message?: string; reason?: string };
+      setForgotMessage({ text: data.message || 'Se existir uma conta com esse login, enviamos um e-mail.', ok: data.success !== false });
+    } catch (err: any) {
+      setForgotMessage({ text: err?.message || 'Falha ao pedir a redefinição. Tente novamente.', ok: false });
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const closeForgotPassword = () => {
+    setShowForgotPassword(false);
+    setForgotUsername('');
+    setForgotMessage(null);
+  };
 
   const handleGoogleLogin = async () => {
     setError(null);
@@ -110,6 +140,83 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
               onSuccess={handleTrocaSenhaSuccess}
               onCancel={() => setPendingUser(null)}
             />
+          ) : showForgotPassword ? (
+            /* "Esqueci minha senha" — self-service, sem sessão nenhuma */
+            <motion.div
+              key="forgot-password"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-8 shadow-2xl"
+            >
+              <div className="flex items-center gap-2 mb-6 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="p-1.5 bg-[#1e3a5f]/10 dark:bg-sky-500/10 text-[#1e3a5f] dark:text-sky-400 rounded-lg">
+                  <Mail className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-tight">
+                  Recuperar Senha
+                </h3>
+              </div>
+
+              {forgotMessage ? (
+                <div className="space-y-5">
+                  <div className={`p-3.5 rounded-xl text-xs flex items-start gap-2.5 font-semibold leading-relaxed ${
+                    forgotMessage.ok
+                      ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400'
+                  }`}>
+                    {forgotMessage.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />}
+                    <span>{forgotMessage.text}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeForgotPassword}
+                    className="w-full py-3 bg-[#1e3a5f] hover:bg-[#2b5182] dark:bg-sky-600 dark:hover:bg-sky-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Voltar para o login
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotSubmit} className="space-y-5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Informe seu login/CPF. Se sua conta tiver e-mail cadastrado, enviamos um link pra você escolher uma nova senha.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1.5 pl-1">
+                      Login / CPF
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        value={forgotUsername}
+                        onChange={e => setForgotUsername(e.target.value)}
+                        placeholder="CPF ou nome de usuário"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f] transition-all font-medium"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={forgotLoading}
+                    className="w-full py-3 bg-[#1e3a5f] hover:bg-[#2b5182] dark:bg-sky-600 dark:hover:bg-sky-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {forgotLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                    <span>{forgotLoading ? 'Enviando...' : 'Enviar link de redefinição'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeForgotPassword}
+                    className="w-full text-2xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer flex items-center justify-center gap-1"
+                  >
+                    <ArrowLeft className="w-3 h-3" />
+                    Voltar para o login
+                  </button>
+                </form>
+              )}
+            </motion.div>
           ) : (
             /* Standard Login Card */
             <motion.div
@@ -177,6 +284,15 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
                       className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer rounded"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <div className="text-right mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-2xs text-slate-400 dark:text-slate-500 hover:text-[#1e3a5f] dark:hover:text-sky-400 hover:underline cursor-pointer"
+                    >
+                      Esqueci minha senha
                     </button>
                   </div>
                 </div>
