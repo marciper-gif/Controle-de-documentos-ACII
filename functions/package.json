@@ -2,7 +2,7 @@
   "name": "acii-functions",
   "description": "Cloud Functions do Portal ACII — hoje só espelha auth_links (Firestore) em Custom Claims do Firebase Auth, pra permitir que o Storage Rules cheque papel/setor sem precisar de cross-service rules (que não funcionam com o banco Firestore nomeado deste projeto).",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "scripts": {
