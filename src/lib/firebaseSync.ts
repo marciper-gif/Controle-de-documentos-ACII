@@ -20,9 +20,39 @@ import { initialITs } from '../data/its';
 
 import { hashPassword } from './userManagement';
 
+// ─────────────────────────────────────────────────────────────────────
+// seedDatabaseIfEmpty é chamada de DOIS lugares em App.tsx (logo após o
+// login via Google, e de novo num useEffect separado que reage a
+// authReady/companyId) — as duas podem disparar quase juntas depois de
+// um login. Sem trava nenhuma, um "verifica se está vazio, se estiver,
+// cria os padrões" clássico vira condição de corrida: as duas chamadas
+// leem `sectorsSnap.empty`/`popsSnap.empty` (etc.) ANTES de qualquer uma
+// ter terminado de escrever, então as duas veem "vazio" e as duas
+// semeiam — encontrado na prática numa empresa de teste, com POP/ATR/IT
+// duplicados (um jogo de documentos, dois seeds concorrentes). Este mapa
+// garante que só existe UMA execução de verdade por empresa por vez:
+// uma segunda chamada, enquanto a primeira ainda está rodando, recebe a
+// MESMA promise em vez de começar tudo de novo.
+// ─────────────────────────────────────────────────────────────────────
+const seedingInFlight = new Map<string, Promise<void>>();
+
+export function seedDatabaseIfEmpty(): Promise<void> {
+  const companyId = getCurrentCompanyId();
+  const existing = seedingInFlight.get(companyId);
+  if (existing) return existing;
+
+  const promise = seedDatabaseIfEmptyForCompany(companyId).finally(() => {
+    seedingInFlight.delete(companyId);
+  });
+  seedingInFlight.set(companyId, promise);
+  return promise;
+}
+
 /**
- * Seeds the database if the collections are empty — SÓ para o tenant da
- * empresa atual (getCurrentCompanyId(), ver src/lib/tenant.ts).
+ * Seeds the database if the collections are empty — SÓ para o tenant
+ * informado (nunca relê getCurrentCompanyId() no meio da execução, pra
+ * não misturar um companyId com outro se a sessão trocar de empresa
+ * enquanto uma seed anterior ainda está em voo).
  *
  * FASE 3 — IDs de seed únicos por empresa: os IDs fixos abaixo (SEC-001,
  * Atr-001, POP-001, IT-001, users '1'/'2') continuavam iguais pra
@@ -38,9 +68,8 @@ import { hashPassword } from './userManagement';
  * A ACII mantém os IDs originais sem sufixo (dado real já em produção,
  * não haveria por que mudar).
  */
-export async function seedDatabaseIfEmpty() {
+async function seedDatabaseIfEmptyForCompany(companyId: string): Promise<void> {
   try {
-    const companyId = getCurrentCompanyId();
     const idSuffix = companyId === DEFAULT_COMPANY_ID ? '' : `-${companyId}`;
     const scoped = (col: string) => query(collection(db, col), where('companyId', '==', companyId));
 
