@@ -1445,20 +1445,37 @@ export default function App() {
     setKeepRevisionOnEdit(false);
   };
 
+  // ─────────────────────────────────────────────────────────────────
+  // Gera o próximo ID sequencial (POP-001, Atr-001, IT-001...) — achado
+  // depois de publicado: calcular o número só olhando os documentos DA
+  // PRÓPRIA empresa sempre dava "001" pro primeiro POP/ATR/IT de QUALQUER
+  // empresa nova, colidindo com o ID sem sufixo que a ACII já usa de
+  // verdade (ex.: POP-001 real da ACII). O Firestore trata escrever num
+  // ID que já existe como EDIÇÃO, não criação — e a regra de update exige
+  // que a empresa do documento existente bata com a da sessão, o que
+  // nunca é o caso numa colisão dessas. Resultado: "Missing or
+  // insufficient permissions" tentando criar o primeiro POP de uma
+  // empresa nova. Mesmo sufixo `-{companyId}` que o antigo
+  // seedDatabaseIfEmpty já usava (ver firebaseSync.ts) resolve — garante
+  // que o ID de uma empresa nunca colide com o de outra.
+  // ─────────────────────────────────────────────────────────────────
+  const nextSequentialId = (prefix: string, items: { id: string }[]): string => {
+    const nextIdNum = Math.max(...items.map(x => parseInt(x.id.split('-')[1]) || 0), 0) + 1;
+    const suffix = companyId && companyId !== DEFAULT_COMPANY_ID ? `-${companyId}` : '';
+    return `${prefix}-${String(nextIdNum).padStart(3, '0')}${suffix}`;
+  };
+
   // Open fresh modal
   const handleOpenCreateModal = (type: 'pop' | 'atr' | 'it') => {
     resetForm();
     setFormDocType(type);
     // Auto generate logical next ID
     if (type === 'atr') {
-      const nextIdNum = Math.max(...atrs.map(a => parseInt(a.id.split('-')[1]) || 0), 0) + 1;
-      setFormId(`Atr-${String(nextIdNum).padStart(3, '0')}`);
+      setFormId(nextSequentialId('Atr', atrs));
     } else if (type === 'pop') {
-      const nextIdNum = Math.max(...pops.map(p => parseInt(p.id.split('-')[1]) || 0), 0) + 1;
-      setFormId(`POP-${String(nextIdNum).padStart(3, '0')}`);
+      setFormId(nextSequentialId('POP', pops));
     } else {
-      const nextIdNum = Math.max(...its.map(i => parseInt(i.id.split('-')[1]) || 0), 0) + 1;
-      setFormId(`IT-${String(nextIdNum).padStart(3, '0')}`);
+      setFormId(nextSequentialId('IT', its));
     }
     setIsModalOpen(true);
   };
@@ -1991,6 +2008,7 @@ export default function App() {
             employees={employees}
             pops={pops}
             atrs={atrs}
+            companyId={companyId}
           />
         ) : currentView === 'documentos' ? (
           <DocumentsView
@@ -3413,8 +3431,7 @@ export default function App() {
                       <div
                         onClick={() => {
                           setFormDocType('pop');
-                          const nextIdNum = Math.max(...pops.map(p => parseInt(p.id.split('-')[1]) || 0), 0) + 1;
-                          setFormId(`POP-${String(nextIdNum).padStart(3, '0')}`);
+                          setFormId(nextSequentialId('POP', pops));
                         }}
                         className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3.5 ${
                           formDocType === 'pop'
@@ -3439,8 +3456,7 @@ export default function App() {
                       <div
                         onClick={() => {
                           setFormDocType('atr');
-                          const nextIdNum = Math.max(...atrs.map(a => parseInt(a.id.split('-')[1]) || 0), 0) + 1;
-                          setFormId(`Atr-${String(nextIdNum).padStart(3, '0')}`);
+                          setFormId(nextSequentialId('Atr', atrs));
                         }}
                         className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3.5 ${
                           formDocType === 'atr'
@@ -3465,8 +3481,7 @@ export default function App() {
                       <div
                         onClick={() => {
                           setFormDocType('it');
-                          const nextIdNum = Math.max(...its.map(i => parseInt(i.id.split('-')[1]) || 0), 0) + 1;
-                          setFormId(`IT-${String(nextIdNum).padStart(3, '0')}`);
+                          setFormId(nextSequentialId('IT', its));
                         }}
                         className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3.5 ${
                           formDocType === 'it'

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { SectorData, Employee, POP, ATR } from '../types';
 import { dbDeleteSector } from '../lib/firebaseSync';
+import { DEFAULT_COMPANY_ID } from '../lib/tenant';
 
 interface SectorManagerProps {
   sectors: SectorData[];
@@ -13,6 +14,7 @@ interface SectorManagerProps {
   employees: Employee[];
   pops: POP[];
   atrs: ATR[];
+  companyId?: string | null;
   canEditSectors?: boolean;
 }
 
@@ -34,6 +36,7 @@ export default function SectorManager({
   employees,
   pops,
   atrs,
+  companyId = null,
   canEditSectors = true
 }: SectorManagerProps) {
   // Modal states
@@ -118,9 +121,14 @@ export default function SectorManager({
       };
       setSectors(prev => prev.map(s => s.id === editingSector.id ? updated : s));
     } else {
-      // Create
+      // Create — sufixo por empresa (mesmo padrão de POP/ATR/IT, ver
+      // nextSequentialId em App.tsx): sem ele, um ID aleatório de 3
+      // dígitos podia colidir com o de outra empresa (baixa
+      // probabilidade, mas não zero) e virar uma "edição" bloqueada em
+      // vez de uma criação.
+      const suffix = companyId && companyId !== DEFAULT_COMPANY_ID ? `-${companyId}` : '';
       const newSec: SectorData = {
-        id: `SEC-${Math.floor(100 + Math.random() * 900)}`,
+        id: `SEC-${Math.floor(100 + Math.random() * 900)}${suffix}`,
         name: formName.trim(),
         description: formDescription.trim(),
         color: formColor
