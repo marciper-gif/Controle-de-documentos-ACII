@@ -513,7 +513,7 @@ export default function GoogleWorkspaceManager({
               <button
                 onClick={handleExportSheets}
                 disabled={sheetsExporting}
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+                className="w-full py-2.5 bg-[var(--brand-primary)] hover:brightness-110 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
               >
                 {sheetsExporting ? (
                   <>

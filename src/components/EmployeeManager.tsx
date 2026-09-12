@@ -265,7 +265,7 @@ export default function EmployeeManager({
           {canEditEmployees && (
             <button
               onClick={handleOpenCreate}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
+              className="px-4 py-2 bg-[var(--brand-primary)] hover:brightness-110 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
               id="btn-add-employee"
             >
               <Plus className="w-4 h-4" />

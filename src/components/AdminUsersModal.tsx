@@ -802,7 +802,7 @@ export default function AdminUsersModal({
                                       <button
                                         type="button"
                                         onClick={() => handleSaveTempPassword(userAcc.id)}
-                                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[9px] font-extrabold uppercase tracking-wider transition-colors cursor-pointer shadow-xs shrink-0"
+                                        className="px-2 py-1 bg-[var(--brand-primary)] hover:brightness-110 text-white rounded-lg text-[9px] font-extrabold uppercase tracking-wider transition-all cursor-pointer shadow-xs shrink-0"
                                       >
                                         Salvar
                                       </button>
@@ -813,7 +813,7 @@ export default function AdminUsersModal({
                                 <button
                                   type="button"
                                   onClick={() => handleCreateAccount(emp)}
-                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[9px] font-extrabold uppercase tracking-wider transition-colors flex items-center gap-1 cursor-pointer"
+                                  className="px-2 py-1 bg-[var(--brand-primary)] hover:brightness-110 text-white rounded-lg text-[9px] font-extrabold uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer"
                                 >
                                   <UserPlus className="w-2.5 h-2.5" />
                                   <span>Criar Conta</span>
@@ -1829,7 +1829,7 @@ export default function AdminUsersModal({
                       </button>
                       <button
                         type="submit"
-                        className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[11px] font-extrabold uppercase tracking-wider shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                        className="px-4 py-1.5 bg-[var(--brand-primary)] hover:brightness-110 text-white rounded-xl text-[11px] font-extrabold uppercase tracking-wider shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
                       >
                         <CheckCircle className="w-3.5 h-3.5" />
                         <span>{editingUserId ? 'Salvar Alterações' : 'Salvar Perfil de Acesso'}</span>
@@ -1857,7 +1857,7 @@ export default function AdminUsersModal({
                     )}
                     <button
                       onClick={() => setIsAddingNew(true)}
-                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                      className="px-3.5 py-1.5 bg-[var(--brand-primary)] hover:brightness-110 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
                     >
                       <UserPlus className="w-3.5 h-3.5" />
                       <span>+ Conceder Nova Senha</span>

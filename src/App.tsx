@@ -1798,7 +1798,7 @@ export default function App() {
               {(currentUser.role === 'admin' || currentUser.role === 'gestor' || currentUser.role === 'lider') && (
                 <button
                   onClick={() => setIsAdminModalOpen(true)}
-                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-700 rounded-lg text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer font-bold shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+                  className="px-2.5 py-1.5 bg-[var(--brand-primary)] hover:brightness-110 text-white border border-black/10 rounded-lg text-[11px] flex items-center gap-1.5 transition-all cursor-pointer font-bold shadow-sm"
                   title="Gerenciar Usuários e Senhas"
                 >
                   <KeyRound className="w-3.5 h-3.5" />
