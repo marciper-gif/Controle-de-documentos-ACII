@@ -115,6 +115,27 @@ service firebase.storage {
       allow delete: if false;
     }
 
+    // Identidade visual da empresa (Fase 4/5 — logo enviado por upload
+    // direto, em vez de só aceitar uma URL já hospedada em outro lugar).
+    // Caminho: branding/{companyId}/{fileName}. Só o admin da PRÓPRIA
+    // empresa pode enviar/substituir; qualquer usuário autenticado da
+    // mesma empresa pode ler (o app, na prática, busca pela URL de
+    // download já com token — que funciona independente desta regra de
+    // leitura, mesmo motivo explicado na nota grande do bloco de
+    // documentos acima — mas a regra correta fica registrada aqui mesmo
+    // assim, sem depender só do bypass do token).
+    function isValidLogoUpload() {
+      return request.resource.size <= 3 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/jpeg|image/png|image/webp');
+    }
+
+    match /branding/{companyId}/{fileName} {
+      allow read: if isAuthenticated() && companyId == currentCompanyId();
+      allow create, update: if isAuthenticated() && companyId == currentCompanyId() &&
+        isAdmin() && isValidLogoUpload();
+      allow delete: if false;
+    }
+
     // Qualquer outro caminho no bucket: fechado por padrão.
     match /{allPaths=**} {
       allow read, write: if false;

@@ -64,6 +64,72 @@ function attemptUpload(
 const RETRY_DELAYS_MS = [4000, 8000, 15000, 25000];
 
 /**
+ * Envia um arquivo pra `storagePath` com o mesmo retry-por-claims-atrasados
+ * de uploadGuardedDocumentFile abaixo (ver o comentário grande lá pro
+ * porquê) — extraído aqui pra ser reaproveitado por qualquer upload do
+ * app que dependa de custom claims recém-gravados, não só documentos de
+ * setor. Usado por uploadCompanyLogo (Identidade Visual).
+ */
+async function uploadWithRetry(
+  file: File,
+  storagePath: string,
+  onProgress?: (pct: number) => void,
+  onRetry?: (attempt: number, totalAttempts: number) => void
+): Promise<{ fileUrl: string; storagePath: string }> {
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await attemptUpload(file, storagePath, onProgress);
+    } catch (err: any) {
+      const isPermissionIssue = err?.code === 'storage/unauthorized';
+      const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
+      if (!isPermissionIssue || isLastAttempt) throw err;
+
+      onRetry?.(attempt + 1, RETRY_DELAYS_MS.length + 1);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+      try {
+        await auth.currentUser?.getIdToken(true);
+      } catch (refreshErr) {
+        console.warn('Falha ao renovar token antes de repetir o upload:', refreshErr);
+      }
+    }
+  }
+
+  // Inalcançável — o loop acima sempre retorna ou lança antes de sair.
+  throw new Error('Falha ao enviar o arquivo.');
+}
+
+export const MAX_LOGO_SIZE_BYTES = 3 * 1024 * 1024;
+const ACCEPTED_LOGO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+export function validateLogoFile(file: File): string | null {
+  if (file.size > MAX_LOGO_SIZE_BYTES) {
+    return `Imagem muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). O limite é 3MB.`;
+  }
+  if (!ACCEPTED_LOGO_MIME_TYPES.includes(file.type)) {
+    return 'Formato não aceito. Envie um JPG, PNG ou WEBP.';
+  }
+  return null;
+}
+
+/**
+ * Envia o logo da empresa pra branding/{companyId}/logo-{timestamp}.{ext}
+ * (ver storage.rules) — o timestamp no nome evita que o navegador (ou um
+ * CDN) sirva uma versão em cache antiga depois de trocar o logo, já que a
+ * URL de download muda a cada envio.
+ */
+export async function uploadCompanyLogo(
+  file: File,
+  companyId: string,
+  onProgress?: (pct: number) => void,
+  onRetry?: (attempt: number, totalAttempts: number) => void
+): Promise<string> {
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+  const storagePath = `branding/${companyId}/logo-${Date.now()}.${ext}`;
+  const { fileUrl } = await uploadWithRetry(file, storagePath, onProgress, onRetry);
+  return fileUrl;
+}
+
+/**
  * Envia o arquivo para documentos/{companyId}/{sectorId}/{documentId}/v{version}_{fileName}
  * (caminho definido no item 2 da especificação; companyId adicionado na
  * Fase 1 — multiempresa, ver storage.rules) e retorna a URL de download +
@@ -93,25 +159,5 @@ export async function uploadGuardedDocumentFile(
   onRetry?: (attempt: number, totalAttempts: number) => void
 ): Promise<{ fileUrl: string; storagePath: string }> {
   const storagePath = `documentos/${companyId}/${sectorId}/${documentId}/v${version}_${file.name}`;
-
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
-    try {
-      return await attemptUpload(file, storagePath, onProgress);
-    } catch (err: any) {
-      const isPermissionIssue = err?.code === 'storage/unauthorized';
-      const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
-      if (!isPermissionIssue || isLastAttempt) throw err;
-
-      onRetry?.(attempt + 1, RETRY_DELAYS_MS.length + 1);
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
-      try {
-        await auth.currentUser?.getIdToken(true);
-      } catch (refreshErr) {
-        console.warn('Falha ao renovar token antes de repetir o upload:', refreshErr);
-      }
-    }
-  }
-
-  // Inalcançável — o loop acima sempre retorna ou lança antes de sair.
-  throw new Error('Falha ao enviar o documento.');
+  return uploadWithRetry(file, storagePath, onProgress, onRetry);
 }

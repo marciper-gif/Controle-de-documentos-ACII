@@ -4,11 +4,13 @@ import {
   X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key,
   CheckCircle, User, ShieldCheck, Eye, EyeOff, Sliders, Shield, Award, HelpCircle,
   Briefcase, Layers, FileText, Plus, Search, Lock, History, Clock, ArrowUpRight,
-  RotateCcw, Power, Check, Palette
+  RotateCcw, Power, Check, Palette, UploadCloud, Loader2
 } from 'lucide-react';
 import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT, DocumentTypesSettings } from '../types';
 import { dbSaveUserAccount, dbDeleteUserAccount } from '../lib/firebaseSync';
 import { getDefaultInitialPassword, hashPassword, migrarERemoverSenhasEmTextoPuro } from '../lib/userManagement';
+import { uploadCompanyLogo, validateLogoFile } from '../lib/documentStorage';
+import { getCurrentCompanyId } from '../lib/tenant';
 
 interface DocumentLogEntry {
   docId: string;
@@ -67,6 +69,33 @@ export default function AdminUsersModal({
   // (onBlur), mesmo raciocínio do nome de exibição na aba "Tipos de
   // Documento": evita gravar no Firestore a cada tecla digitada.
   const [brandingDraft, setBrandingDraft] = useState(companyBranding);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+
+  // Envio direto de arquivo pro logo (Identidade Visual) — alternativa ao
+  // campo de URL logo abaixo, pra quem não tem/não sabe hospedar uma
+  // imagem em outro lugar. Reaproveita o mesmo upload com retry-por-
+  // claims-atrasados já usado pros documentos de setor (ver comentário
+  // grande em uploadCompanyLogo, src/lib/documentStorage.ts).
+  const handleLogoFileSelect = async (file: File) => {
+    setLogoUploadError(null);
+    const validationError = validateLogoFile(file);
+    if (validationError) {
+      setLogoUploadError(validationError);
+      return;
+    }
+    setLogoUploading(true);
+    try {
+      const logoUrl = await uploadCompanyLogo(file, getCurrentCompanyId());
+      const next = { ...brandingDraft, logoUrl };
+      setBrandingDraft(next);
+      onUpdateCompanyBranding(next);
+    } catch (err: any) {
+      setLogoUploadError(err?.message || 'Falha ao enviar a imagem. Tente novamente.');
+    } finally {
+      setLogoUploading(false);
+    }
+  };
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   
@@ -1481,9 +1510,8 @@ export default function AdminUsersModal({
                 <Palette className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-450" />
                 <span>
                   Nome, logo e cor aparecem no cabeçalho do sistema e no topo dos documentos
-                  exportados/impressos. O logo é informado por URL (link de uma imagem já hospedada
-                  em algum lugar — Google Drive público, seu site, etc.); envio direto de arquivo
-                  ainda não existe nesta fase.
+                  exportados/impressos. Envie o arquivo do logo direto do computador (ou celular),
+                  ou informe um link de uma imagem já hospedada em outro lugar, se preferir.
                 </span>
               </div>
 
@@ -1504,18 +1532,64 @@ export default function AdminUsersModal({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">URL do Logo (opcional)</label>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Logo da Empresa (opcional)</label>
+                  {brandingDraft.logoUrl && (
+                    <div className="flex items-center gap-3 mb-2.5 p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg">
+                      <img src={brandingDraft.logoUrl} alt="Logo atual" className="w-10 h-10 rounded-lg object-contain bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800" />
+                      <span className="text-2xs text-slate-450 dark:text-slate-500">Logo atual — envie outro arquivo abaixo pra substituir.</span>
+                    </div>
+                  )}
+                  <label
+                    htmlFor="logo-file-input"
+                    className={`flex items-center justify-center gap-2 w-full px-3.5 py-2.5 border border-dashed rounded-lg text-xs font-bold transition-colors ${
+                      logoUploading
+                        ? 'border-slate-300 dark:border-slate-700 text-slate-400 cursor-wait'
+                        : 'border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-450 cursor-pointer'
+                    }`}
+                  >
+                    {logoUploading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <UploadCloud className="w-3.5 h-3.5" />
+                        Enviar arquivo (JPG, PNG ou WEBP, até 3MB)
+                      </>
+                    )}
+                  </label>
                   <input
-                    type="text"
-                    defaultValue={brandingDraft.logoUrl}
-                    placeholder="https://.../logo.png"
-                    onBlur={(e) => {
-                      const next = { ...brandingDraft, logoUrl: e.target.value.trim() };
-                      setBrandingDraft(next);
-                      if (next.logoUrl !== companyBranding.logoUrl) onUpdateCompanyBranding(next);
+                    id="logo-file-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={logoUploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = ''; // permite reenviar o mesmo arquivo depois, se precisar
+                      if (file) handleLogoFileSelect(file);
                     }}
-                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                    className="hidden"
                   />
+                  {logoUploadError && (
+                    <p className="text-2xs text-rose-500 mt-1.5">{logoUploadError}</p>
+                  )}
+                  <details className="mt-2.5">
+                    <summary className="text-2xs text-slate-400 cursor-pointer hover:text-slate-600 dark:hover:text-slate-300">
+                      Prefere usar um link já hospedado em outro lugar?
+                    </summary>
+                    <input
+                      type="text"
+                      defaultValue={brandingDraft.logoUrl}
+                      placeholder="https://.../logo.png"
+                      onBlur={(e) => {
+                        const next = { ...brandingDraft, logoUrl: e.target.value.trim() };
+                        setBrandingDraft(next);
+                        if (next.logoUrl !== companyBranding.logoUrl) onUpdateCompanyBranding(next);
+                      }}
+                      className="w-full mt-2 px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                    />
+                  </details>
                 </div>
 
                 <div>
