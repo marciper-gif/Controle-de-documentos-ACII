@@ -49,6 +49,16 @@ service firebase.storage {
       return currentRole() == 'gestor' || currentRole() == 'lider';
     }
 
+    // canUploadDocuments (permissão configurável por empresa, por
+    // perfil) — espelhada pra cá pela mesma Cloud Function
+    // (syncAuthLinkClaims/syncPermissionsToClaims, functions/index.js)
+    // pelo mesmo motivo de role/sectorId/companyId: o Storage não
+    // consegue consultar o Firestore direto. Só é relevante pra
+    // colaborador — admin/gestor já têm acesso incondicional abaixo.
+    function canUploadClaim() {
+      return isAuthenticated() && request.auth.token.canUpload == true;
+    }
+
     // Validação server-side das restrições de upload do item 2 da
     // especificação (o modal de envio, item 4.3, também valida no
     // cliente — isto é só uma segunda barreira, defesa em profundidade).
@@ -88,13 +98,13 @@ service firebase.storage {
       // dentro da MESMA empresa do caminho — sem isSameCompany aqui, um
       // gestor da empresa A poderia enviar um arquivo pra dentro da pasta
       // da empresa B só sabendo o companyId dela (os IDs de empresa não
-      // são segredo — aparecem em URLs, por exemplo).
-      // TODO (etapa 9 da especificação, ainda pendente de antes da Fase
-      // 1): incluir aqui também quem tiver canUploadDocuments == true no
-      // perfil — precisa entrar nos custom claims também (hoje só
-      // role/sectorId/companyId são espelhados).
+      // são segredo — aparecem em URLs, por exemplo). Colaborador do
+      // próprio setor também pode, SE a empresa tiver liberado
+      // canUploadDocuments pro perfil dele (canUploadClaim acima) — antes
+      // a tela já mostrava o botão de upload pra esse colaborador, mas o
+      // envio sempre falhava aqui (a regra só olhava o papel).
       allow create, update: if isAuthenticated() && companyId == currentCompanyId() &&
-        (isAdmin() || (isGestor() && currentSectorId() == sectorId)) &&
+        (isAdmin() || ((isGestor() || canUploadClaim()) && currentSectorId() == sectorId)) &&
         isValidDocumentUpload();
 
       // Exclusão física do arquivo: ninguém, por enquanto. "Marcar para

@@ -104,6 +104,33 @@ async function resolveSectorIdForEmployee(firestore, employeeId) {
   }
 }
 
+/**
+ * Resolve se o papel pode enviar documento pro módulo de Guarda —
+ * espelhado pros custom claims (ver storage.rules) porque, assim como
+ * role/sectorId/companyId, o Storage não consegue ler o Firestore direto
+ * (banco nomeado, sem cross-service rules).
+ *
+ * admin/gestor/lider sempre podem (storage.rules já libera esses papéis
+ * incondicionalmente, sem olhar permissão nenhuma — igual sempre foi).
+ * colaborador depende da permissão configurável por empresa
+ * (permissions/{companyId}.colaborador.canUploadDocuments, editada em
+ * AdminUsersModal.tsx) — sem espelhar isso aqui, a tela liberava o botão
+ * de upload pra um colaborador com essa permissão marcada, mas o envio
+ * sempre falhava no Storage (regra só olhava o papel, nunca essa flag).
+ */
+async function resolveCanUpload(firestore, role, companyId) {
+  if (role === 'admin' || role === 'gestor' || role === 'lider') return true;
+  if (role !== 'colaborador') return false;
+  try {
+    const permSnap = await firestore.collection('permissions').doc(companyId).get();
+    if (!permSnap.exists) return false;
+    return permSnap.data()?.colaborador?.canUploadDocuments === true;
+  } catch (err) {
+    logger.warn(`Falha ao resolver canUploadDocuments (companyId=${companyId}):`, err);
+    return false;
+  }
+}
+
 exports.syncAuthLinkClaims = onDocumentWritten(
   {
     document: 'auth_links/{uid}',
@@ -119,7 +146,7 @@ exports.syncAuthLinkClaims = onDocumentWritten(
         // Documento apagado (não deveria acontecer no fluxo normal do
         // app) — limpa os claims por segurança, em vez de deixar um
         // papel/setor obsoleto valendo pra sempre no token desse uid.
-        await getAuth().setCustomUserClaims(uid, { role: null, sectorId: null, companyId: null });
+        await getAuth().setCustomUserClaims(uid, { role: null, sectorId: null, companyId: null, canUpload: false });
         logger.info(`Claims limpos para uid=${uid} (auth_links removido).`);
         return;
       }
@@ -130,14 +157,66 @@ exports.syncAuthLinkClaims = onDocumentWritten(
       // mesmo motivo (storage.rules não consegue consultar o Firestore
       // direto — ver comentário grande no topo deste arquivo).
       const companyId = after.companyId ?? DEFAULT_COMPANY_ID;
-      await getAuth().setCustomUserClaims(uid, { role, sectorId, companyId });
-      logger.info(`Claims sincronizados para uid=${uid}: role=${role}, sectorId=${sectorId}, companyId=${companyId}`);
+      const canUpload = await resolveCanUpload(db(), role, companyId);
+      await getAuth().setCustomUserClaims(uid, { role, sectorId, companyId, canUpload });
+      logger.info(`Claims sincronizados para uid=${uid}: role=${role}, sectorId=${sectorId}, companyId=${companyId}, canUpload=${canUpload}`);
     } catch (err) {
       // Não há como "falhar" de volta pro cliente aqui (é um trigger
       // assíncrono) — o retry do cliente (waitForClaimsSync) vai apenas
       // dar timeout e seguir com os claims antigos/ausentes, o que é o
       // pior caso seguro (acesso negado, não indevido).
       logger.error(`Falha ao sincronizar claims para uid=${uid}:`, err);
+    }
+  }
+);
+
+/**
+ * syncPermissionsToClaims
+ * ─────────────────────────────────────────────────────────────────────
+ * syncAuthLinkClaims só reage a mudanças em auth_links/{uid} — se um
+ * admin muda a permissão canUploadDocuments do colaborador
+ * (permissions/{companyId}), os colaboradores já logados ficariam com o
+ * claim `canUpload` desatualizado até o próximo login. Esta function
+ * reage à mudança na permissão em si e ressincroniza na hora os claims
+ * de todo colaborador daquela empresa (admin/gestor/lider não dependem
+ * desta permissão, não precisam ser tocados).
+ */
+exports.syncPermissionsToClaims = onDocumentWritten(
+  {
+    document: 'permissions/{companyId}',
+    database: FIRESTORE_DATABASE_ID,
+    region: REGION
+  },
+  async event => {
+    const companyId = event.params.companyId;
+    const after = event.data?.after?.exists ? event.data.after.data() : null;
+    const canUpload = after?.colaborador?.canUploadDocuments === true;
+
+    try {
+      const firestore = db();
+      const linksSnap = await firestore.collection('auth_links')
+        .where('companyId', '==', companyId)
+        .where('role', '==', 'colaborador')
+        .get();
+
+      if (linksSnap.empty) return;
+
+      await Promise.all(linksSnap.docs.map(async linkDoc => {
+        const link = linkDoc.data();
+        try {
+          await getAuth().setCustomUserClaims(linkDoc.id, {
+            role: link.role ?? null,
+            sectorId: link.sectorId ?? null,
+            companyId: link.companyId ?? DEFAULT_COMPANY_ID,
+            canUpload
+          });
+        } catch (err) {
+          logger.warn(`Falha ao ressincronizar claims (permissions) para uid=${linkDoc.id}:`, err);
+        }
+      }));
+      logger.info(`Claims de ${linksSnap.size} colaborador(es) da empresa ${companyId} ressincronizados (canUpload=${canUpload}).`);
+    } catch (err) {
+      logger.error(`Falha ao ressincronizar claims após mudança de permissões (companyId=${companyId}):`, err);
     }
   }
 );
