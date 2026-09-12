@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, FileText, Archive, ShieldCheck, Building2, Users, CheckCircle2, Mail, Layers, AlertTriangle, Search } from 'lucide-react';
+import { BookOpen, Briefcase, FileText, Archive, ShieldCheck, Building2, Users, CheckCircle2, Mail, Layers, AlertTriangle, Search, MessageCircle } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────
 // Fase 4 (rebranding) — página pública de apresentação do produto.
@@ -7,11 +7,18 @@ import { BookOpen, Briefcase, FileText, Archive, ShieldCheck, Building2, Users, 
 // nem faz login — carrega instantaneamente pra qualquer visitante, sem
 // nenhuma chamada ao banco. Servida na rota /produto (ver src/main.tsx),
 // fora do fluxo normal do app (que continua abrindo direto na tela de
-// login em qualquer outro caminho). O CTA "Fale conosco" é um link
-// mailto: — sem formulário com backend próprio nesta fase (regra 5 do
-// prompt: simplicidade de manutenção; um formulário de verdade
-// precisaria de uma Cloud Function só pra receber submissões).
+// login em qualquer outro caminho). Sem formulário com backend próprio
+// nesta fase (regra 5 do prompt: simplicidade de manutenção; um
+// formulário de verdade precisaria de uma Cloud Function só pra receber
+// submissões) — os CTAs são um link wa.me (WhatsApp, canal principal —
+// é assim que o público local negocia de verdade) com e-mail como
+// alternativa secundária, menor.
 const CONTACT_EMAIL = 'marciper@gmail.com';
+// Formato E.164 sem símbolos: 55 (Brasil) + DDD + número.
+const WHATSAPP_NUMBER = '5599999010979';
+const WHATSAPP_MESSAGE = 'Olá! Vim pelo site do Normatiza e quero saber mais.';
+const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`;
+const MAILTO_URL = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Quero conhecer o Normatiza')}`;
 
 const FEATURES = [
   {
@@ -57,9 +64,12 @@ export default function LandingPage() {
             <span className="font-black text-lg tracking-tight text-slate-900 dark:text-white font-display">Normatiza</span>
           </div>
           <a
-            href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Quero conhecer o Normatiza')}`}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-colors"
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-colors"
           >
+            <MessageCircle className="w-3.5 h-3.5" />
             Fale Conosco
           </a>
         </div>
@@ -79,13 +89,22 @@ export default function LandingPage() {
           documentos digitalizados — cada um no seu setor, com histórico de revisão e permissões por
           papel de acesso.
         </p>
-        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+        <div className="mt-8 flex flex-col items-center justify-center gap-3">
           <a
-            href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Quero conhecer o Normatiza')}`}
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-black uppercase tracking-wider shadow-md transition-colors"
           >
-            <Mail className="w-4 h-4" />
+            <MessageCircle className="w-4 h-4" />
             Falar com um especialista
+          </a>
+          <a
+            href={MAILTO_URL}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            ou envie um e-mail
           </a>
         </div>
       </section>
@@ -214,12 +233,23 @@ export default function LandingPage() {
           Fale com a gente e configuramos sua empresa com seus setores, usuários e identidade visual.
         </p>
         <a
-          href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Quero conhecer o Normatiza')}`}
+          href={WHATSAPP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
           className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-black uppercase tracking-wider shadow-md transition-colors"
         >
-          <Mail className="w-4 h-4" />
-          {CONTACT_EMAIL}
+          <MessageCircle className="w-4 h-4" />
+          Falar no WhatsApp
         </a>
+        <div className="mt-3">
+          <a
+            href={MAILTO_URL}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            ou envie um e-mail para {CONTACT_EMAIL}
+          </a>
+        </div>
       </section>
 
       <footer className="border-t border-slate-200 dark:border-slate-800 py-8 text-center text-[11px] text-slate-400 dark:text-slate-500">
