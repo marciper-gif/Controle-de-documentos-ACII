@@ -21,6 +21,19 @@ import { Employee } from '../types';
  * definitivo, quando na verdade ainda está carregando. `loading` deixa
  * de ser `true` assim que a primeira resposta (mesmo vazia) chega, ou se
  * não há como carregar ainda (sem sessão/empresa).
+ *
+ * FASE 1 (bug encontrado depois de publicado) — o onSnapshot usava
+ * `docChanges()` mesclado em cima do estado ANTERIOR (`prev`), em vez de
+ * substituir pela lista inteira que o Firestore devolveu. Isso vazava
+ * funcionário de UMA empresa pra tela de OUTRA: o estado inicial deste
+ * hook lê `localStorage.getItem('ms-employees')` — uma chave GLOBAL do
+ * navegador, sem escopo por empresa — então, ao trocar de empresa no
+ * mesmo navegador, a lista antiga (de outra empresa, cacheada de uma
+ * sessão anterior) entrava como `prev`; como um funcionário que nunca
+ * pertenceu à consulta da empresa nova nunca gera um evento "removed",
+ * ele nunca era removido do Map, e ficava aparecendo pra sempre.
+ * Corrigido igual sectors/atrs/pops/its: o Firestore substitui o estado
+ * inteiro a cada resposta, nunca mescla com o que já estava lá.
  */
 export function useEmployeesState(authReady: boolean, companyId: string | null) {
   const [employees, rawSetEmployees] = useState<Employee[]>(() => {
@@ -62,21 +75,14 @@ export function useEmployeesState(authReady: boolean, companyId: string | null) 
     if (!db || !authReady || !companyId) return;
 
     const unsubEmployees = onSnapshot(query(collection(db, 'employees'), where('companyId', '==', companyId)), (snapshot) => {
-      rawSetEmployees((prev) => {
-        const map = new Map<string, Employee>();
-        prev.forEach((e) => { if (e && e.id) map.set(e.id, e); });
-        snapshot.docChanges().forEach((change) => {
-          const data = change.doc.data() as Employee;
-          if (change.type === 'removed') {
-            map.delete(change.doc.id);
-          } else {
-            map.set(change.doc.id, data);
-          }
-        });
-        const merged = Array.from(map.values());
-        localStorage.setItem('ms-employees', JSON.stringify(merged));
-        return merged;
+      const list: Employee[] = [];
+      snapshot.forEach((doc) => {
+        list.push(doc.data() as Employee);
       });
+      // O Firestore é a fonte de verdade a partir daqui — sem mesclar com
+      // o estado anterior (ver comentário na declaração do hook, acima).
+      rawSetEmployees(list);
+      localStorage.setItem('ms-employees', JSON.stringify(list));
       setLoading(false);
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);

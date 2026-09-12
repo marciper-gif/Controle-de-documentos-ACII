@@ -575,48 +575,38 @@ export default function App() {
     // assina o PRÓPRIO registro logo abaixo (unsubOwnUser).
     const isAccountManager = currentUser?.role === 'admin' || currentUser?.role === 'gestor' || currentUser?.role === 'lider';
 
+    // FASE 1 (bug encontrado depois de publicado) — os dois listeners
+    // abaixo mesclavam a resposta do Firestore em cima do estado ANTERIOR
+    // (`prev`), igual o bug já corrigido em useEmployeesState.ts. `users`
+    // inicializa lendo `localStorage.getItem('ms-users')` (chave GLOBAL,
+    // sem escopo por empresa) — ao trocar de empresa no mesmo navegador,
+    // a lista de usuários (com hash de senha!) de uma empresa anterior
+    // entrava como `prev` e nunca era removida, porque um usuário que
+    // nunca pertenceu à consulta da empresa nova jamais gera evento de
+    // remoção. Corrigido substituindo o estado inteiro a cada resposta,
+    // nunca mesclando com o que já estava lá.
     const unsubUsers = isAccountManager
       ? onSnapshot(query(collection(db, 'users'), where('companyId', '==', companyId)), (snapshot) => {
           const list: UserAccount[] = [];
           snapshot.forEach((doc) => {
             list.push(doc.data() as UserAccount);
           });
-          if (list.length > 0) {
-            rawSetUsers(prev => {
-              const map = new Map<string, UserAccount>();
-              prev.forEach(item => map.set(item.id, item));
-              list.forEach(item => {
-                const existingKey = Array.from(map.keys()).find(k =>
-                  k === item.id ||
-                  (map.get(k)?.username && item.username && map.get(k)!.username.toLowerCase() === item.username.toLowerCase())
-                );
-                if (existingKey) {
-                  map.delete(existingKey);
-                }
-                map.set(item.id, item);
-              });
-              const result = Array.from(map.values());
-              localStorage.setItem('ms-users', JSON.stringify(result));
-              return result;
-            });
-          }
+          rawSetUsers(list);
+          localStorage.setItem('ms-users', JSON.stringify(list));
         }, (err) => {
           console.warn("Firestore snapshot error (users):", err);
         })
       : () => {};
 
+    // Colaborador/quem não gerencia contas só enxerga o PRÓPRIO registro
+    // (rules não liberam mais — ver firestore.rules), então `users` aqui
+    // vira sempre um array de um item só, nunca mesclado com o anterior.
     const unsubOwnUser = (!isAccountManager && currentUser)
       ? onSnapshot(doc(db, 'users', currentUser.id), (docSnap) => {
           if (!docSnap.exists()) return;
           const updated = docSnap.data() as UserAccount;
-          rawSetUsers(prev => {
-            const map = new Map<string, UserAccount>();
-            prev.forEach(item => map.set(item.id, item));
-            map.set(updated.id, updated);
-            const result = Array.from(map.values());
-            localStorage.setItem('ms-users', JSON.stringify(result));
-            return result;
-          });
+          rawSetUsers([updated]);
+          localStorage.setItem('ms-users', JSON.stringify([updated]));
         }, (err) => {
           console.warn("Firestore snapshot error (own user):", err);
         })
@@ -2068,7 +2058,7 @@ export default function App() {
           >
             <div>
               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Setores Ativos</span>
-              <h2 className="text-3xl font-black text-amber-600 dark:text-amber-400 font-display mt-1 tracking-tight">8</h2>
+              <h2 className="text-3xl font-black text-amber-600 dark:text-amber-400 font-display mt-1 tracking-tight">{sectors.length}</h2>
               <p className="text-[10px] text-slate-450 dark:text-slate-400/80 mt-1">Organizados por lotes</p>
             </div>
             <div className="p-3 bg-amber-500/10 rounded-xl text-amber-600 dark:text-amber-400 border border-amber-500/25 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
