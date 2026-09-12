@@ -49,28 +49,38 @@ export function seedDatabaseIfEmpty(): Promise<void> {
 }
 
 /**
- * Seeds the database if the collections are empty — SÓ para o tenant
- * informado (nunca relê getCurrentCompanyId() no meio da execução, pra
- * não misturar um companyId com outro se a sessão trocar de empresa
- * enquanto uma seed anterior ainda está em voo).
- *
- * FASE 3 — IDs de seed únicos por empresa: os IDs fixos abaixo (SEC-001,
- * Atr-001, POP-001, IT-001, users '1'/'2') continuavam iguais pra
- * qualquer empresa até aqui — inofensivo enquanto só a ACII existia, mas
- * colidiria (Firestore exige ID único POR COLEÇÃO, companyId sendo só um
- * campo) no dia em que uma segunda empresa fosse seedada com a mesma
- * lista. Agora toda empresa QUE NÃO seja a ACII (DEFAULT_COMPANY_ID)
- * recebe um sufixo `-{companyId}` no ID de cada item semeado — ex.:
- * "POP-001-acme". Isso preserva de propósito o PREFIXO original
- * ("POP-", "Atr-", "IT-", "SEC-"), porque é dele que ~15 lugares do app
- * dependem pra inferir o tipo de um documento (ex.: `id.startsWith(
- * 'POP-')` em App.tsx) — só o final do ID muda, então nada disso quebra.
- * A ACII mantém os IDs originais sem sufixo (dado real já em produção,
- * não haveria por que mudar).
+ * Seeds the database if the collections are empty — SÓ para a ACII
+ * (DEFAULT_COMPANY_ID; ver guarda logo no início da função). Nenhuma
+ * outra empresa é semeada — decisão revista depois de publicado: uma
+ * empresa nova nasce vazia, sem herdar o catálogo de exemplo da ACII
+ * nem usuários padrão extras (ver o comentário grande dentro da função).
+ * Nunca relê getCurrentCompanyId() no meio da execução, pra não misturar
+ * um companyId com outro se a sessão trocar de empresa enquanto uma seed
+ * anterior ainda está em voo.
  */
 async function seedDatabaseIfEmptyForCompany(companyId: string): Promise<void> {
   try {
-    const idSuffix = companyId === DEFAULT_COMPANY_ID ? '' : `-${companyId}`;
+    // ─────────────────────────────────────────────────────────────────
+    // Decisão de produto (revista depois de publicado): empresa nova
+    // nasce VAZIA — sem cópia do catálogo de exemplo da ACII (setores,
+    // POPs, ATRs, ITs) nem usuários padrão extras. Antes desta correção,
+    // TODA empresa criada pelo onboarding (exports.createCompany) recebia
+    // automaticamente os mesmos setores/documentos internos da ACII, só
+    // com o ID sufixado — fazia sentido quando só existia a ACII (era só
+    // dado de exemplo pra popular um sistema vazio), mas não faz mais
+    // sentido pra um cliente pagante novo: ele deve montar os próprios
+    // setores e documentos do zero, não herdar o catálogo de outra
+    // empresa. A seed de usuários padrão (admin/Colaborador123, senha
+    // conhecida) também era redundante e um risco: createCompany já cria
+    // o admin de verdade da empresa nova com a senha escolhida por quem
+    // cadastrou — não deveria existir NENHUMA conta extra com senha
+    // hard-coded pra um cliente real.
+    //
+    // A ACII continua sendo semeada normalmente (é o próprio tenant de
+    // origem desses dados de exemplo — nada muda pra ela).
+    // ─────────────────────────────────────────────────────────────────
+    if (companyId !== DEFAULT_COMPANY_ID) return;
+
     const scoped = (col: string) => query(collection(db, col), where('companyId', '==', companyId));
 
     // Check if sectors are empty or missing any default sector
@@ -78,8 +88,7 @@ async function seedDatabaseIfEmptyForCompany(companyId: string): Promise<void> {
     if (sectorsSnap.empty) {
       console.log(`Seeding sectors for company ${companyId}...`);
       for (const sector of initialSectors) {
-        const id = `${sector.id}${idSuffix}`;
-        await salvarDocumento('sectors', { ...sector, id, companyId }, id);
+        await salvarDocumento('sectors', { ...sector, companyId }, sector.id);
       }
     }
 
@@ -89,8 +98,7 @@ async function seedDatabaseIfEmptyForCompany(companyId: string): Promise<void> {
     const atrsSnap = await getDocs(scoped('atrs'));
     if (atrsSnap.empty) {
       for (const atr of initialATRs) {
-        const id = `${atr.id}${idSuffix}`;
-        await salvarDocumento('atrs', { ...atr, id, companyId }, id);
+        await salvarDocumento('atrs', { ...atr, companyId }, atr.id);
       }
     }
 
@@ -98,8 +106,7 @@ async function seedDatabaseIfEmptyForCompany(companyId: string): Promise<void> {
     const popsSnap = await getDocs(scoped('pops'));
     if (popsSnap.empty) {
       for (const pop of initialPOPs) {
-        const id = `${pop.id}${idSuffix}`;
-        await salvarDocumento('pops', { ...pop, id, companyId }, id);
+        await salvarDocumento('pops', { ...pop, companyId }, pop.id);
       }
     }
 
@@ -107,8 +114,7 @@ async function seedDatabaseIfEmptyForCompany(companyId: string): Promise<void> {
     const itsSnap = await getDocs(scoped('its'));
     if (itsSnap.empty) {
       for (const it of initialITs) {
-        const id = `${it.id}${idSuffix}`;
-        await salvarDocumento('its', { ...it, id, companyId }, id);
+        await salvarDocumento('its', { ...it, companyId }, it.id);
       }
     }
 
@@ -120,14 +126,11 @@ async function seedDatabaseIfEmptyForCompany(companyId: string): Promise<void> {
       // comentário grande em functions/index.js sobre por que isso
       // importa). Estas são só as credenciais INICIAIS de instalação;
       // o admin deve trocar a senha no primeiro acesso.
-      // username também ganha sufixo pra empresas que não a ACII — login é
-      // único no sistema INTEIRO, não só dentro da empresa (decisão
-      // registrada em functions/index.js, exports.createCompany).
       const adminHash = await hashPassword('admin');
       const collabHash = await hashPassword('Colaborador123');
       const defaultUsers: UserAccount[] = [
-        { id: `1${idSuffix}`, companyId, username: `admin${idSuffix}`, name: 'Administrador Geral', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
-        { id: `2${idSuffix}`, companyId, username: `colaborador${idSuffix}`, name: 'Colaborador Padrão', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
+        { id: '1', companyId, username: 'admin', name: 'Administrador Geral', passwordHash: adminHash, role: 'admin', status: 'Ativo', primeiro_acesso: false, firstAccess: false },
+        { id: '2', companyId, username: 'colaborador', name: 'Colaborador Padrão', passwordHash: collabHash, role: 'colaborador', status: 'Ativo', primeiro_acesso: true, firstAccess: true }
       ];
       for (const user of defaultUsers) {
         await salvarDocumento('users', user, user.id);
