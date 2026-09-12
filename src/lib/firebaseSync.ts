@@ -10,7 +10,7 @@ import { db } from './firebase';
 import { salvarDocumento, deletarDocumento } from '../config/firebase';
 import { logSystemEvent } from '../utils/logger';
 import { SectorData, Employee, ATR, POP, IT, UserAccount, ProfilePermissions, GuardedDocument, DocumentTypesSettings } from '../types';
-import { getCurrentCompanyId, DEFAULT_COMPANY_ID } from './tenant';
+import { getCurrentCompanyId, DEFAULT_COMPANY_ID, tenantDocPath } from './tenant';
 
 // Initial Data imports for seeding
 import { initialSectors } from '../data/sectors';
@@ -151,12 +151,15 @@ function withCompanyId<T extends { companyId?: string }>(data: T): T & { company
 }
 
 // --- SECORS CRUD ---
+// Código exibido (sector.id) e chave real no Firestore (tenantDocPath)
+// separados — ver comentário grande em tenantDocPath, src/lib/tenant.ts.
 export async function dbSaveSector(sector: SectorData, currentUser?: any) {
-  return await salvarDocumento('sectors', withCompanyId(sector), sector.id, currentUser);
+  const withCid = withCompanyId(sector);
+  return await salvarDocumento('sectors', withCid, tenantDocPath(withCid.companyId, sector.id), currentUser, sector.id);
 }
 
-export async function dbDeleteSector(id: string, currentUser?: any) {
-  return await deletarDocumento('sectors', id);
+export async function dbDeleteSector(id: string, companyId?: string | null, currentUser?: any) {
+  return await deletarDocumento('sectors', tenantDocPath(companyId, id));
 }
 
 // --- EMPLOYEES CRUD ---
@@ -170,29 +173,32 @@ export async function dbDeleteEmployee(id: string, currentUser?: any) {
 
 // --- ATR CRUD ---
 export async function dbSaveATR(atr: ATR, currentUser?: any) {
-  return await salvarDocumento('atrs', withCompanyId(atr), atr.id, currentUser);
+  const withCid = withCompanyId(atr);
+  return await salvarDocumento('atrs', withCid, tenantDocPath(withCid.companyId, atr.id), currentUser, atr.id);
 }
 
-export async function dbDeleteATR(id: string, currentUser?: any) {
-  return await deletarDocumento('atrs', id);
+export async function dbDeleteATR(id: string, companyId?: string | null, currentUser?: any) {
+  return await deletarDocumento('atrs', tenantDocPath(companyId, id));
 }
 
 // --- POP CRUD ---
 export async function dbSavePOP(pop: POP, currentUser?: any) {
-  return await salvarDocumento('pops', withCompanyId(pop), pop.id, currentUser);
+  const withCid = withCompanyId(pop);
+  return await salvarDocumento('pops', withCid, tenantDocPath(withCid.companyId, pop.id), currentUser, pop.id);
 }
 
-export async function dbDeletePOP(id: string, currentUser?: any) {
-  return await deletarDocumento('pops', id);
+export async function dbDeletePOP(id: string, companyId?: string | null, currentUser?: any) {
+  return await deletarDocumento('pops', tenantDocPath(companyId, id));
 }
 
 // --- IT CRUD ---
 export async function dbSaveIT(it: IT, currentUser?: any) {
-  return await salvarDocumento('its', withCompanyId(it), it.id, currentUser);
+  const withCid = withCompanyId(it);
+  return await salvarDocumento('its', withCid, tenantDocPath(withCid.companyId, it.id), currentUser, it.id);
 }
 
-export async function dbDeleteIT(id: string, currentUser?: any) {
-  return await deletarDocumento('its', id);
+export async function dbDeleteIT(id: string, companyId?: string | null, currentUser?: any) {
+  return await deletarDocumento('its', tenantDocPath(companyId, id));
 }
 
 // --- USERS CRUD ---

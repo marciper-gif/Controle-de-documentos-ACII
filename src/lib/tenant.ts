@@ -36,3 +36,27 @@ export function setCurrentCompanyId(companyId: CompanyId | null): void {
 export function getCurrentCompanyId(): CompanyId {
   return currentCompanyId || DEFAULT_COMPANY_ID;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Endereço real (chave do documento no Firestore) de um item com "código
+// de exibição" sequencial — sectors/atrs/pops/its. Achado depois de
+// publicado: o código bonito que o usuário vê e edita ("POP-001") e a
+// chave do documento no banco eram o MESMO campo. Cada empresa numera os
+// próprios POP/ATR/IT/setor a partir de 1, então toda empresa NOVA tinha
+// "POP-001" — e como a coleção é compartilhada entre empresas, isso
+// colidia com o "POP-001" de verdade da ACII (Firestore trata escrever
+// numa chave que já existe como EDIÇÃO, não criação, e a regra bloqueia
+// por ser de outra empresa).
+//
+// A correção: o CÓDIGO (campo `id` dentro do documento, o que aparece na
+// tela, na URL, no PDF impresso) continua limpo e sem sufixo pra
+// qualquer empresa. Só a CHAVE do documento no Firestore (nunca exposta
+// na interface) ganha o companyId na frente pra qualquer empresa que não
+// seja a ACII, garantindo endereço único mesmo com códigos repetidos
+// entre empresas diferentes. A ACII mantém a chave idêntica ao código de
+// sempre (dado real já em produção — nenhuma migração necessária).
+// ─────────────────────────────────────────────────────────────────────
+export function tenantDocPath(companyId: CompanyId | null | undefined, id: string): string {
+  const cid = companyId || getCurrentCompanyId();
+  return cid === DEFAULT_COMPANY_ID ? id : `${cid}__${id}`;
+}

@@ -1013,7 +1013,7 @@ export default function App() {
   const handleDeleteDoc = (id: string, type: 'pop' | 'atr' | 'it') => {
     if (confirm(`Deseja realmente excluir o documento ${id}?`)) {
       if (type === 'atr') {
-        dbDeleteATR(id);
+        dbDeleteATR(id, companyId);
         const filtered = atrs.filter(a => a.id !== id);
         setATRs(filtered);
         if (selectedDocId === id) {
@@ -1022,7 +1022,7 @@ export default function App() {
           setSelectedDocType(next ? (next.id.startsWith('POP-') ? 'pop' : next.id.startsWith('IT-') ? 'it' : 'atr') : 'pop');
         }
       } else if (type === 'pop') {
-        dbDeletePOP(id);
+        dbDeletePOP(id, companyId);
         const filtered = pops.filter(p => p.id !== id);
         setPOPs(filtered);
         if (selectedDocId === id) {
@@ -1031,7 +1031,7 @@ export default function App() {
           setSelectedDocType(next ? (next.id.startsWith('POP-') ? 'pop' : next.id.startsWith('IT-') ? 'it' : 'atr') : 'pop');
         }
       } else {
-        dbDeleteIT(id);
+        dbDeleteIT(id, companyId);
         const filtered = its.filter(i => i.id !== id);
         setITs(filtered);
         if (selectedDocId === id) {
@@ -1446,23 +1446,20 @@ export default function App() {
   };
 
   // ─────────────────────────────────────────────────────────────────
-  // Gera o próximo ID sequencial (POP-001, Atr-001, IT-001...) — achado
-  // depois de publicado: calcular o número só olhando os documentos DA
-  // PRÓPRIA empresa sempre dava "001" pro primeiro POP/ATR/IT de QUALQUER
-  // empresa nova, colidindo com o ID sem sufixo que a ACII já usa de
-  // verdade (ex.: POP-001 real da ACII). O Firestore trata escrever num
-  // ID que já existe como EDIÇÃO, não criação — e a regra de update exige
-  // que a empresa do documento existente bata com a da sessão, o que
-  // nunca é o caso numa colisão dessas. Resultado: "Missing or
-  // insufficient permissions" tentando criar o primeiro POP de uma
-  // empresa nova. Mesmo sufixo `-{companyId}` que o antigo
-  // seedDatabaseIfEmpty já usava (ver firebaseSync.ts) resolve — garante
-  // que o ID de uma empresa nunca colide com o de outra.
+  // Gera o próximo código sequencial (POP-001, Atr-001, IT-001...) —
+  // achado depois de publicado: calcular o número só olhando os
+  // documentos DA PRÓPRIA empresa sempre dava "001" pro primeiro POP/
+  // ATR/IT de QUALQUER empresa nova, colidindo com o código sem sufixo
+  // que a ACII já usa de verdade (ex.: POP-001 real da ACII) — a coleção
+  // é compartilhada entre empresas, só o campo companyId separa. Isso
+  // fica resolvido por trás agora: tenantDocPath (src/lib/tenant.ts)
+  // grava cada empresa (que não a ACII) num endereço real diferente no
+  // Firestore (companyId + código), então o CÓDIGO aqui continua limpo
+  // — sem sufixo nenhum, sempre — mesmo repetindo entre empresas.
   // ─────────────────────────────────────────────────────────────────
   const nextSequentialId = (prefix: string, items: { id: string }[]): string => {
     const nextIdNum = Math.max(...items.map(x => parseInt(x.id.split('-')[1]) || 0), 0) + 1;
-    const suffix = companyId && companyId !== DEFAULT_COMPANY_ID ? `-${companyId}` : '';
-    return `${prefix}-${String(nextIdNum).padStart(3, '0')}${suffix}`;
+    return `${prefix}-${String(nextIdNum).padStart(3, '0')}`;
   };
 
   // Open fresh modal

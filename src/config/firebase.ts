@@ -108,8 +108,16 @@ export async function verificarPersistencia(collectionName: string, docId: strin
 /**
  * Salva ou atualiza um documento no Firestore de forma assíncrona garantida.
  * Adiciona updatedAt com serverTimestamp() e updatedBy com o usuário atual.
+ *
+ * `displayId` (opcional): quando informado, é o valor gravado no CAMPO
+ * `id` do próprio documento — pode ser diferente de `id`/`targetId`, que é
+ * só o endereço (chave) real do documento no Firestore. Existe pra
+ * sectors/atrs/pops/its (ver tenantDocPath em src/lib/tenant.ts): o
+ * código que aparece pro usuário fica limpo, mesmo quando o endereço real
+ * no banco leva o companyId na frente pra evitar colisão entre empresas.
+ * Sem informar, comportamento de sempre (campo `id` = endereço real).
  */
-export async function salvarDocumento(tipo: string, dados: any, id?: string, currentUser?: any) {
+export async function salvarDocumento(tipo: string, dados: any, id?: string, currentUser?: any, displayId?: string) {
   try {
     const targetId = id || dados.id || doc(collection(db, tipo)).id;
     const docRef = doc(db, tipo, targetId);
@@ -117,7 +125,7 @@ export async function salvarDocumento(tipo: string, dados: any, id?: string, cur
     // Limpar campos nulos/undefined para compatibilidade JSON
     const cleanData = JSON.parse(JSON.stringify({
       ...dados,
-      id: targetId
+      id: displayId ?? targetId
     }));
 
     const dadosComTimestamp = {
