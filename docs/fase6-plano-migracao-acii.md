@@ -60,22 +60,18 @@ scripts administrativos já existentes, `create-company.js` e
   `permissions/acii` ou `document_type_settings/acii` já existirem, o
   script não mexe neles.
 
-## Risco identificado e decisão pendente
+## Risco identificado — verificado e descartado (02/10/2026)
 
-Contas de usuário criadas antes da Fase 1 podem ter a senha gravada em
-**texto puro** no campo `password` (bug histórico, independente desta
-migração — já documentado e corrigido no código para contas novas desde
-a Fase 1). O script calcula o hash dessas senhas e grava em
-`passwordHash`, mas **mantém o texto puro por enquanto**, para não
-arriscar travar o login de ninguém no mesmo passo em que o resto do
-acervo está sendo migrado.
+Contas de usuário criadas antes da Fase 1 **poderiam** ter a senha
+gravada em texto puro no campo `password` (bug histórico, independente
+desta migração — já corrigido no código para contas novas desde a
+Fase 1). O script de migração calcularia o hash dessas senhas sem
+apagar o texto puro, como rede de segurança.
 
-Depois de confirmar que o login por hash está funcionando normalmente
-para todo mundo (alguns dias de uso real), o próximo passo recomendado
-é um segundo script, bem mais simples, que apenas remove o campo
-`password` de texto puro de quem já tiver `passwordHash` — fechando de
-vez esse risco. Posso preparar esse script já junto com este, ou depois
-de confirmarmos que a migração principal rodou bem — como preferir.
+Depois da migração, rodamos `functions/check-plaintext-passwords.js`
+(somente leitura) contra os dados reais: **nenhuma das 9 contas tinha
+o campo `password` em texto puro.** O risco não existe no acervo real
+— o segundo script de limpeza cogitado aqui não é necessário.
 
 ## Roteiro de execução (produção)
 
