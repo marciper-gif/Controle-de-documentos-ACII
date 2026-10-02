@@ -147,6 +147,41 @@ function CompanyBrandMark({ company, className = "w-full h-auto" }: { company: C
   );
 }
 
+// Fase 5 — esqueleto de carregamento inicial. Mostrado só entre o login
+// bem-sucedido e a primeira resposta de cada assinatura do Firestore
+// (ver initialDataLoaded) — sem isto, a tela mostrava "0 documentos" e
+// grades vazias por um instante, indistinguível de uma empresa que
+// realmente não tem nada cadastrado ainda.
+function PortalSkeleton() {
+  const pulseBlock = "animate-pulse bg-slate-200 dark:bg-slate-800 rounded-xl";
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-12">
+      <div className="bg-white/90 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 py-3 lg:h-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex items-center gap-3">
+          <div className={`${pulseBlock} w-10 h-10 shrink-0`} />
+          <div className="space-y-2">
+            <div className={`${pulseBlock} h-3 w-40`} />
+            <div className={`${pulseBlock} h-2.5 w-28`} />
+          </div>
+        </div>
+      </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className={`${pulseBlock} h-28`} />
+          ))}
+        </div>
+        <div className={`${pulseBlock} h-14`} />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className={`${pulseBlock} h-16`} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Navegação por URL
 // ─────────────────────────────────────────────────────────────────────
@@ -372,6 +407,15 @@ export default function App() {
   // abaixo) — nenhum cache local, é um dado pequeno e pouco sensível a
   // ficar um instante desatualizado.
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
+
+  // Fase 5 — distingue "ainda carregando" de "empresa realmente vazia".
+  // Cada uma das 6 assinaturas principais (ver efeito grande de
+  // listeners) marca a própria chave assim que responde pela primeira
+  // vez (sucesso ou erro); `initialDataLoaded` só fica true quando todas
+  // já responderam ao menos uma vez.
+  const [dataLoadedFlags, setDataLoadedFlags] = useState<Record<string, boolean>>({});
+  const initialDataLoaded = ['sectors', 'employees', 'atrs', 'pops', 'its', 'users']
+    .every(key => dataLoadedFlags[key]);
 
   const userPermissions = useMemo(() => {
     if (!currentUser) {
@@ -813,6 +857,17 @@ export default function App() {
     const companyId = currentUser?.companyId;
     if (!db || !authReady || !companyId) return;
 
+    // Fase 5 — estado de carregamento inicial: sem isto, a tela mostrava
+    // "0 documentos" / grades vazias por um instante toda vez que a
+    // página carregava, indistinguível de "esta empresa realmente não
+    // tem nada ainda". Cada assinatura marca a própria chave assim que
+    // responde (sucesso OU erro — um erro de permissão, por exemplo,
+    // nunca deve deixar a tela de carregamento travada pra sempre).
+    setDataLoadedFlags({});
+    const markLoaded = (key: string) => {
+      setDataLoadedFlags(prev => (prev[key] ? prev : { ...prev, [key]: true }));
+    };
+
     const byCompany = (col: string) => query(collection(db, col), where('companyId', '==', companyId));
 
     // Real-time Sector subscription
@@ -821,8 +876,10 @@ export default function App() {
       snapshot.forEach((doc) => list.push(doc.data() as SectorData));
       rawSetSectors(list);
       localStorage.setItem(cacheKey('ms-sectors'), JSON.stringify(list));
+      markLoaded('sectors');
     }, (err) => {
       console.warn("Firestore snapshot error (sectors):", err);
+      markLoaded('sectors');
     });
 
    // Real-time Employee subscription
@@ -842,8 +899,10 @@ export default function App() {
         localStorage.setItem(cacheKey('ms-employees'), JSON.stringify(merged));
         return merged;
       });
+      markLoaded('employees');
     }, (err) => {
       console.warn("Firestore snapshot error (employees):", err);
+      markLoaded('employees');
     });
 
     // Real-time ATRs subscription
@@ -852,8 +911,10 @@ export default function App() {
       snapshot.forEach((doc) => list.push(doc.data() as ATR));
       rawSetATRs(list);
       localStorage.setItem(cacheKey('ms-atrs'), JSON.stringify(list));
+      markLoaded('atrs');
     }, (err) => {
       console.warn("Firestore snapshot error (atrs):", err);
+      markLoaded('atrs');
     });
 
     // Real-time POPs subscription
@@ -862,8 +923,10 @@ export default function App() {
       snapshot.forEach((doc) => list.push(doc.data() as POP));
       rawSetPOPs(list);
       localStorage.setItem(cacheKey('ms-pops'), JSON.stringify(list));
+      markLoaded('pops');
     }, (err) => {
       console.warn("Firestore snapshot error (pops):", err);
+      markLoaded('pops');
     });
 
     // Real-time ITs subscription
@@ -872,8 +935,10 @@ export default function App() {
       snapshot.forEach((doc) => list.push(doc.data() as IT));
       rawSetITs(list);
       localStorage.setItem(cacheKey('ms-its'), JSON.stringify(list));
+      markLoaded('its');
     }, (err) => {
       console.warn("Firestore snapshot error (its):", err);
+      markLoaded('its');
     });
 
     // guarded_documents NÃO tem mais um listener global aqui — ver
@@ -887,8 +952,10 @@ export default function App() {
       snapshot.forEach((doc) => list.push(doc.data() as UserAccount));
       rawSetUsers(list);
       localStorage.setItem(cacheKey('ms-users'), JSON.stringify(list));
+      markLoaded('users');
     }, (err) => {
       console.warn("Firestore snapshot error (users):", err);
+      markLoaded('users');
     });
 
     // Real-time Permissions subscription — um documento por empresa
@@ -967,14 +1034,11 @@ export default function App() {
     return false;
   }, [currentUser, employees, profilePermissions]);
 
-  // Save sectors and employees changes to LocalStorage
-  useEffect(() => {
-    localStorage.setItem('ms-sectors', JSON.stringify(sectors));
-  }, [sectors]);
-
-  useEffect(() => {
-    localStorage.setItem('ms-employees', JSON.stringify(employees));
-  }, [employees]);
+  // (Cache de setores/funcionários no localStorage já é feito logo
+  // acima, com a chave correta por empresa — ver cacheKey. Havia um
+  // segundo efeito idêntico aqui gravando nas chaves antigas, sem o
+  // namespace por empresa; removido na Fase 5 por ser puro código morto
+  // duplicado, sem nenhuma leitura usando essas chaves.)
 
   // Helper to normalize username (e.g. "Amanda Bezerra" -> "amanda.bezerra")
   const normalizeUsername = (name: string): string => {
@@ -1897,6 +1961,10 @@ export default function App() {
 
   if (!currentUser) {
     return <LoginView onLogin={handleLogin} users={users} onUpdateUsers={handleUpdateUsers} />;
+  }
+
+  if (!initialDataLoaded) {
+    return <PortalSkeleton />;
   }
 
   return (

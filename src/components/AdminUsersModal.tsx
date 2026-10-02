@@ -779,7 +779,9 @@ export default function AdminUsersModal({
                   if (filtered.length === 0) {
                     return (
                       <div className="text-center py-8 text-slate-400 text-xs italic">
-                        Nenhum colaborador encontrado para a busca "{gridSearchQuery}".
+                        {employees.length === 0
+                          ? 'Nenhum colaborador cadastrado ainda.'
+                          : `Nenhum colaborador encontrado para a busca "${gridSearchQuery}".`}
                       </div>
                     );
                   }

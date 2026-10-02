@@ -330,8 +330,19 @@ export default function EmployeeManager({
           {filteredEmployees.length === 0 ? (
             <div className="col-span-full py-16 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-850">
               <User className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto" />
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mt-4">Nenhum funcionário encontrado</p>
-              <p className="text-xs text-slate-400 mt-1">Experimente alterar as palavras-chave ou os filtros ativos.</p>
+              {employees.length === 0 ? (
+                // Fase 5: empresa realmente sem nenhum funcionário ainda —
+                // mensagem diferente de "sem resultado pro filtro atual".
+                <>
+                  <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mt-4">Nenhum funcionário cadastrado ainda</p>
+                  <p className="text-xs text-slate-400 mt-1">Clique em "Novo Funcionário" para cadastrar o primeiro.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mt-4">Nenhum funcionário encontrado</p>
+                  <p className="text-xs text-slate-400 mt-1">Experimente alterar as palavras-chave ou os filtros ativos.</p>
+                </>
+              )}
             </div>
           ) : (
             filteredEmployees.map(emp => (
