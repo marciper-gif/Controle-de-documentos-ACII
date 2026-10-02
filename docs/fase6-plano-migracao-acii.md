@@ -1,5 +1,11 @@
 # Fase 6 — Plano de migração do acervo real da ACII
 
+> **Status: executada em produção em 02/10/2026.** Rodada via Cloud
+> Shell, com o Márcio acompanhando cada passo. Dry-run revisado antes de
+> aplicar; `--apply` rodado uma vez e confirmado idempotente (uma
+> segunda rodada sem `--apply` não encontrou mais nada pendente). Veja
+> o resumo no final deste documento.
+
 Este documento é a proposta formal de migração exigida antes de qualquer
 alteração nos dados reais da ACII. Nada aqui é executado automaticamente:
 a migração só roda em produção depois de você revisar este plano e
@@ -136,3 +142,46 @@ Este teste não substitui o dry-run contra os dados reais da produção
 (passo 2 do roteiro acima) — ele prova que a lógica do script está
 correta, não que o acervo real da ACII não tem nenhuma outra
 particularidade que só aparece com os dados de verdade.
+
+## Resultado da execução em produção (02/10/2026)
+
+O dry-run contra os dados reais revelou algo que não era esperado: a
+maior parte do acervo (setores, ATRs, POPs, ITs, funcionário, usuários,
+documentos digitalizados) **já tinha `companyId` gravado** antes mesmo
+de rodar o script — provavelmente porque, durante as fases anteriores
+deste projeto, esses registros já tinham sido salvos de novo pela tela
+do próprio app (toda gravação feita pela UI desde a Fase 1 já carimba
+`companyId` automaticamente). O `--apply` então teve pouco trabalho:
+
+- **ATRs (20), POPs (41) e ITs (3):** não precisaram de `companyId`,
+  mas ainda não tinham `sectorId` — esse campo é mais novo (Fase 3) e
+  foi resolvido pelo nome do setor em todos, exceto um.
+- **IT-001** ("Higienização de Teclados e Mouses"): o campo `sector`
+  está escrito como "Tecnologia da Informação", que não bate
+  exatamente com o setor cadastrado "TI". Ficou sem `sectorId` —
+  corrigível a qualquer momento editando essa IT pela tela e
+  reselecionando o setor. Não bloqueia nada, só deixa essa IT de fora
+  da restrição "gestor só edita o próprio setor" até ser corrigida.
+- **login_index:** nenhuma das 8 entradas existia — **este era o item
+  crítico**, sem ele o login de qualquer usuário sem sessão já salva no
+  navegador provavelmente não funcionava. As 8 foram criadas e
+  confirmadas (uma segunda rodada do dry-run mostrou "0 a criar, 8 já
+  existentes").
+- **Senha em texto puro:** nenhum dos 8 usuários precisou de
+  `passwordHash` calculado a partir de senha em texto puro — ou seja,
+  o risco de segurança descrito mais acima (contas antigas com senha
+  não criptografada) **não foi encontrado nos dados reais**. O segundo
+  script de limpeza (remover texto puro) discutido com o Márcio pode
+  não ser necessário — a confirmar numa checagem futura dos 8 usuários.
+- **`permissions/default` não existia** (nem `permissions/acii`) — o
+  app segue usando os padrões embutidos no próprio código, como já
+  fazia antes. Normal, sem ação necessária.
+- **`document_type_settings/acii`:** não existia, foi criado com os 4
+  tipos habilitados e os rótulos padrão.
+
+Rodado uma segunda vez sem `--apply` logo depois: relatório mostrou
+tudo em zero (nada pendente) — confirma que a migração ficou completa e
+que rodar de novo não duplica nem altera nada.
+
+Próximo passo: confirmar com login real (um usuário de cada papel) que
+tudo continua funcionando normalmente na tela do app.
