@@ -23,6 +23,7 @@ const { getStorage } = require('firebase-admin/storage');
 
 const FIRESTORE_DATABASE_ID = 'ai-studio-aciicontroledodo-8a9badc3-1faa-4b52-9783-49cb0814c900';
 const PROJECT_ID = 'dogwood-loader-bln7n';
+const STORAGE_BUCKET = 'dogwood-loader-bln7n.firebasestorage.app';
 
 const args = process.argv.slice(2);
 const APPLY = args.includes('--apply');
@@ -39,7 +40,7 @@ if (companyId === 'acii') {
 
 initializeApp({ projectId: PROJECT_ID });
 const db = getFirestore(FIRESTORE_DATABASE_ID);
-const bucket = getStorage().bucket();
+const bucket = getStorage().bucket(STORAGE_BUCKET);
 
 const BUSINESS_COLLECTIONS = ['sectors', 'employees', 'atrs', 'pops', 'its', 'users', 'guarded_documents'];
 
