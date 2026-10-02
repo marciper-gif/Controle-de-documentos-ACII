@@ -5,6 +5,10 @@ export interface ExportPdfOptions {
   elementId: string;
   fileName?: string;
   documentTitle?: string;
+  // Nome da empresa dona do documento (Fase 4) — usado só nos metadados
+  // internos do PDF (subject/author), nunca visível no conteúdo da
+  // página em si. Sem isso, cai num texto genérico.
+  companyName?: string;
   onProgress?: (status: string) => void;
 }
 
@@ -12,7 +16,7 @@ export interface ExportPdfOptions {
  * Captures an HTML element and generates a high-quality multi-page A4 PDF download.
  */
 export async function exportElementToPdf(options: ExportPdfOptions): Promise<void> {
-  const { elementId, fileName = 'documento.pdf', documentTitle, onProgress } = options;
+  const { elementId, fileName = 'documento.pdf', documentTitle, companyName, onProgress } = options;
   const element = document.getElementById(elementId);
 
   if (!element) {
@@ -65,9 +69,9 @@ export async function exportElementToPdf(options: ExportPdfOptions): Promise<voi
   if (documentTitle) {
     pdf.setProperties({
       title: documentTitle,
-      subject: 'Documento Oficial ACII',
-      creator: 'Sistema de Controle de Documentos ACII',
-      author: 'Associação Comercial de Imperatriz'
+      subject: 'Documento Oficial',
+      creator: 'Normatiza — Sistema de Controle de Documentos',
+      author: companyName || 'Normatiza'
     });
   }
 

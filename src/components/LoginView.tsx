@@ -39,6 +39,8 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
     });
   }, []);
 
+  const selectedCompany = companies.find(c => c.id === companyId) || null;
+
   const handleGoogleLogin = async () => {
     setError(null);
     if (!companyId) {
@@ -115,21 +117,36 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
         transition={{ duration: 0.5 }}
         className="w-full max-w-md z-10"
       >
-        {/* Header Branding */}
-        {/* Nota (Fase 4): logo/cor/nome fixos da ACII saem daqui quando a
-            marca do produto (Normatiza) e a identidade por empresa forem
-            implementadas — por ora, mantido genérico com o nome da
-            empresa selecionada, quando houver. */}
+        {/* Header Branding — Fase 4: mostra o logo/cor da empresa
+            selecionada (se ela já subiu um), não mais nada fixo da ACII.
+            Sem empresa escolhida ainda, cai num ícone genérico — é o
+            produto (Normatiza) falando, não nenhuma empresa específica. */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#1e3a5f] dark:bg-[#2b5182] rounded-2xl shadow-xl text-white font-black text-2xl mb-3 border border-white/20">
-            <Building2 className="w-7 h-7" />
-          </div>
+          {selectedCompany?.logoUrl ? (
+            <img
+              src={selectedCompany.logoUrl}
+              alt={selectedCompany.name}
+              className="inline-flex w-16 h-16 object-contain rounded-2xl shadow-xl mb-3 bg-white border border-slate-200"
+            />
+          ) : (
+            <div
+              className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-xl text-white font-black text-2xl mb-3 border border-white/20"
+              style={{ backgroundColor: selectedCompany?.primaryColor || '#1e3a5f' }}
+            >
+              <Building2 className="w-7 h-7" />
+            </div>
+          )}
           <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight font-display">
             Controle de Processos
           </h2>
-          <p className="text-xs text-[#1e3a5f] dark:text-sky-400 font-extrabold uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
+          <p
+            className="text-xs font-extrabold uppercase tracking-widest mt-1 flex items-center justify-center gap-1"
+            style={{ color: selectedCompany?.primaryColor || undefined }}
+          >
             <Shield className="w-3.5 h-3.5 text-emerald-500" />
-            <span>{companies.find(c => c.id === companyId)?.name || 'Portal de Documentos'}</span>
+            <span className={selectedCompany?.primaryColor ? '' : 'text-[#1e3a5f] dark:text-sky-400'}>
+              {selectedCompany?.name || 'Normatiza'}
+            </span>
           </p>
         </div>
 
@@ -272,7 +289,7 @@ export default function LoginView({ onLogin, users, onUpdateUsers }: LoginViewPr
 
         {/* Footer info */}
         <div className="text-center mt-6 text-2xs text-slate-400 dark:text-slate-500 font-mono">
-          © {new Date().getFullYear()} ACII Imperatriz • Sistema de Controle de Processos
+          © {new Date().getFullYear()} Normatiza • Controle de Documentos
         </div>
       </motion.div>
     </div>

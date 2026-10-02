@@ -13,9 +13,13 @@ export interface AuditLogEntry {
 }
 
 /**
- * Utilitário de log de auditoria do sistema ACII.
+ * Utilitário de log de auditoria do sistema.
  * Em desenvolvimento: exibe logs formatados no console.
  * Em produção: também grava logs na coleção 'system_logs' do Firestore.
+ *
+ * NOTA: hoje sem nenhuma chamada ativa no app (useFirestoreSync, o único
+ * lugar que chama isto, também não é usado em nenhuma tela) — mantido
+ * como utilitário pronto, não como funcionalidade ligada.
  */
 export async function logSystemEvent(log: AuditLogEntry) {
   const metaEnv = (import.meta as any).env || {};
@@ -23,7 +27,7 @@ export async function logSystemEvent(log: AuditLogEntry) {
 
   // Log no Console
   if (isDev) {
-    console.log(`[ACII LOG - ${log.action}] [${log.collectionName}/${log.docId || ''}]:`, log);
+    console.log(`[LOG - ${log.action}] [${log.collectionName}/${log.docId || ''}]:`, log);
   }
 
   // Em produção ou para auditoria de escritas, salvar no Firestore

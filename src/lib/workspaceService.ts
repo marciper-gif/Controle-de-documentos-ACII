@@ -15,7 +15,7 @@ const base64UrlEncode = (str: string): string => {
 /**
  * Format a document (ATR, POP, or IT) into a beautifully structured plain text report for Google Docs
  */
-const formatDocToReportText = (doc: any, type: 'atr' | 'pop' | 'it'): string => {
+const formatDocToReportText = (doc: any, type: 'atr' | 'pop' | 'it', companyName?: string): string => {
   let text = '';
   const lineDivider = '='.repeat(60) + '\n';
   const sectionDivider = '-'.repeat(40) + '\n';
@@ -157,7 +157,7 @@ const formatDocToReportText = (doc: any, type: 'atr' | 'pop' | 'it'): string => 
     text += '\n';
   }
 
-  text += `Documento exportado do Portal ACII em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}\n`;
+  text += `Documento exportado${companyName ? ` de ${companyName}` : ''} via Normatiza em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}\n`;
   return text;
 };
 
@@ -167,9 +167,10 @@ const formatDocToReportText = (doc: any, type: 'atr' | 'pop' | 'it'): string => 
 export const exportToGoogleDoc = async (
   accessToken: string,
   docData: any,
-  type: 'atr' | 'pop' | 'it'
+  type: 'atr' | 'pop' | 'it',
+  companyName?: string
 ): Promise<{ documentId: string; documentUrl: string }> => {
-  const title = `[ACII] ${docData.id} - ${docData.title}`;
+  const title = `${docData.id} - ${docData.title}`;
 
   // Step A: Create an empty Google Doc
   const createRes = await fetch('https://docs.googleapis.com/v1/documents', {
@@ -191,7 +192,7 @@ export const exportToGoogleDoc = async (
   const documentUrl = `https://docs.google.com/document/d/${documentId}/edit`;
 
   // Step B: Build formatted report text and insert it
-  const reportText = formatDocToReportText(docData, type);
+  const reportText = formatDocToReportText(docData, type, companyName);
 
   const updateRes = await fetch(`https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`, {
     method: 'POST',
@@ -227,11 +228,12 @@ export const exportDataToGoogleSheet = async (
   employees: Employee[],
   atrs: ATR[],
   pops: POP[],
-  its: IT[]
+  its: IT[],
+  companyName?: string
 ): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> => {
-  const sheetTitle = `ACII Portal - Painel Geral (${new Date().toLocaleDateString('pt-BR')})`;
+  const sheetTitle = `${companyName || 'Normatiza'} - Painel Geral (${new Date().toLocaleDateString('pt-BR')})`;
 
-  // Create spreadsheet with two sheets: "Funcionários" and "Documentos (ACII)"
+  // Create spreadsheet with two sheets: "Funcionários" e "Documentos do Portal"
   const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
     headers: {

@@ -105,6 +105,19 @@ service firebase.storage {
       allow delete: if false;
     }
 
+    // Fase 4: logo de cada empresa (identidade visual própria). Leitura
+    // liberada a qualquer sessão autenticada — não é dado sensível, e
+    // pode aparecer em telas antes do login terminar (ex: pré-visualização
+    // na tela de login, se isso vier a existir). Upload só pelo admin da
+    // PRÓPRIA empresa, e só imagem pequena.
+    match /company_logos/{companyId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && belongsToCompany(companyId) && isAdmin() &&
+        request.resource.size <= 2 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/png|image/jpeg|image/svg\\+xml|image/webp');
+      allow delete: if false;
+    }
+
     // Qualquer outro caminho no bucket: fechado por padrão.
     match /{allPaths=**} {
       allow read, write: if false;

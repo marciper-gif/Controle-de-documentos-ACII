@@ -44,7 +44,7 @@ import {
   Archive
 } from 'lucide-react';
 
-import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry, DocumentTypeSettings } from './types';
+import { Sector, ATR, POP, POPStep, UserAccount, SectorData, Employee, ProfilePermissions, IT, RevisionHistoryEntry, DocumentTypeSettings, Company } from './types';
 import { exportElementToPdf } from './utils/pdfExport';
 import { getDefaultInitialPassword, hashPassword } from './lib/userManagement';
 import { initialATRs } from './data/atrs';
@@ -126,85 +126,24 @@ export function getReviewStatus(doc: { emissionDate: string; revisionDate?: stri
   }
 }
 
-function ACIILogo({ className = "w-full h-auto" }: { className?: string }) {
+// Fase 4 — marca da empresa dona do documento (não da ACII, nem do
+// Normatiza): se a empresa já subiu um logo (companies/{id}.logoUrl —
+// ver src/lib/companyBranding.ts), mostra ele; senão, mostra o NOME da
+// empresa em tipografia — nunca um logo genérico do produto, porque
+// este cabeçalho representa o documento oficial de quem o emitiu.
+function CompanyBrandMark({ company, className = "w-full h-auto" }: { company: Company | null; className?: string }) {
+  if (company?.logoUrl) {
+    return <img src={company.logoUrl} alt={company.name} className={`${className} object-contain`} />;
+  }
   return (
-    <svg viewBox="0 0 280 110" className={className} xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(5, 5)">
-        {/* ACII Bold Green Text */}
-        <text
-          x="0"
-          y="50"
-          style={{
-            fontFamily: '"Space Grotesk", "Inter", sans-serif',
-            fontSize: '56px',
-            fontWeight: 900,
-            letterSpacing: '-2px'
-          }}
-          className="fill-emerald-600 dark:fill-emerald-400 font-black"
-        >
-          ACII
-        </text>
-
-        {/* Shutter Swirl Icon */}
-        <g transform="translate(145, 2)">
-          {/* Green rounded background box */}
-          <rect width="52" height="52" rx="10" className="fill-emerald-600 dark:fill-emerald-500" />
-          
-          {/* Outer circle layout */}
-          <circle cx="26" cy="26" r="21" fill="none" stroke="#ffffff" strokeWidth="2.5" opacity="0.3" />
-          
-          {/* Golden Yellow sun center circle */}
-          <circle cx="26" cy="26" r="11" fill="#fbc02d" />
-          
-          {/* Curved white/green swirl blades / shutter arcs */}
-          <path d="M 26,5 A 21,21 0 0,1 47,26 L 37,26 A 11,11 0 0,0 26,15 Z" fill="#ffffff" />
-          <path d="M 47,26 A 21,21 0 0,1 26,47 L 26,37 A 11,11 0 0,0 37,26 Z" fill="#ffffff" />
-          <path d="M 26,47 A 21,21 0 0,1 5,26 L 15,26 A 11,11 0 0,0 26,37 Z" fill="#ffffff" />
-          <path d="M 5,26 A 21,21 0 0,1 26,5 L 26,15 A 11,11 0 0,0 15,26 Z" fill="#ffffff" />
-        </g>
-
-        {/* Subtitle Lines */}
-        <text
-          x="0"
-          y="74"
-          style={{
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '11px',
-            fontWeight: 800,
-            letterSpacing: '1px'
-          }}
-          className="fill-slate-800 dark:fill-slate-200 font-bold"
-        >
-          ASSOCIAÇÃO COMERCIAL
-        </text>
-        <text
-          x="0"
-          y="87"
-          style={{
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '11px',
-            fontWeight: 800,
-            letterSpacing: '1px'
-          }}
-          className="fill-slate-800 dark:fill-slate-200 font-bold"
-        >
-          INDUSTRIAL E SERVIÇOS
-        </text>
-        <text
-          x="0"
-          y="100"
-          style={{
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '11px',
-            fontWeight: 800,
-            letterSpacing: '1px'
-          }}
-          className="fill-slate-800 dark:fill-slate-200 font-bold"
-        >
-          DE IMPERATRIZ
-        </text>
-      </g>
-    </svg>
+    <div className={`${className} flex items-center justify-start`}>
+      <span
+        className="font-black uppercase tracking-tight text-emerald-600 dark:text-emerald-400 truncate"
+        style={{ fontFamily: '"Space Grotesk", "Inter", sans-serif', fontSize: '28px', color: company?.primaryColor || undefined }}
+      >
+        {company?.name || 'Empresa'}
+      </span>
+    </div>
   );
 }
 
@@ -427,6 +366,12 @@ export default function App() {
       return computed;
     });
   }, [currentUser?.companyId]);
+
+  // Fase 4 — identidade visual da empresa (nome, logo, cor). Carregado
+  // em tempo real via onSnapshot (ver efeito grande de listeners mais
+  // abaixo) — nenhum cache local, é um dado pequeno e pouco sensível a
+  // ficar um instante desatualizado.
+  const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
 
   const userPermissions = useMemo(() => {
     if (!currentUser) {
@@ -966,6 +911,14 @@ export default function App() {
       console.warn("Firestore snapshot error (document_type_settings):", err);
     });
 
+    // Real-time Company subscription (Fase 4) — nome/logo/cor da própria
+    // empresa, pra identidade visual (ver src/lib/companyBranding.ts).
+    const unsubCompany = onSnapshot(doc(db, 'companies', companyId), (docSnap) => {
+      setCurrentCompany(docSnap.exists() ? (docSnap.data() as Company) : null);
+    }, (err) => {
+      console.warn("Firestore snapshot error (companies):", err);
+    });
+
     return () => {
       unsubSectors();
       unsubEmployees();
@@ -975,6 +928,7 @@ export default function App() {
       unsubUsers();
       unsubPermissions();
       unsubDocumentTypeSettings();
+      unsubCompany();
     };
   }, [currentUser?.companyId, authReady]);
 
@@ -1952,18 +1906,32 @@ export default function App() {
       <header className="no-print bg-white/90 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 shadow-xs transition-all">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 lg:h-20 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           
-          {/* Logo & Brand Info */}
+          {/* Logo & Brand Info — identidade da EMPRESA logada (Fase 4),
+              não mais fixo na ACII. Mostra o logo que a empresa subiu
+              (companies/{id}.logoUrl); sem logo, cai pras iniciais do
+              nome dela num badge colorido (cor própria, se definida). */}
           <div className="flex items-center justify-between lg:justify-start gap-3 w-full lg:w-auto">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0 text-white font-black text-sm">
-                ACII
-              </div>
+              {currentCompany?.logoUrl ? (
+                <img
+                  src={currentCompany.logoUrl}
+                  alt={currentCompany.name}
+                  className="w-10 h-10 rounded-xl object-contain shrink-0 bg-white border border-slate-200 dark:border-slate-800"
+                />
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0 text-white font-black text-sm"
+                  style={{ backgroundColor: currentCompany?.primaryColor || '#10b981' }}
+                >
+                  {(currentCompany?.name || 'EM').slice(0, 2).toUpperCase()}
+                </div>
+              )}
               <div>
                 <h1 className="text-xs sm:text-sm md:text-base font-black tracking-tight text-slate-950 dark:text-white uppercase font-display leading-tight">
-                  Portal de Documentos ACII
+                  {currentCompany?.name || 'Portal de Documentos'}
                 </h1>
                 <p className="text-[9px] sm:text-[10px] md:text-xs text-emerald-600 dark:text-emerald-450 font-black uppercase tracking-widest leading-none mt-0.5">
-                  ACII • Associação Comercial de Imperatriz
+                  Normatiza • Controle de Documentos
                 </p>
               </div>
             </div>
@@ -2226,7 +2194,7 @@ export default function App() {
             </span>
           </div>
           <div className="hidden sm:flex items-center gap-2 text-slate-400 dark:text-slate-500 text-[10px]">
-            <span>ACII Imperatriz • Sistema de Controle de Processos</span>
+            <span>{currentCompany?.name || 'Normatiza'} • Sistema de Controle de Processos</span>
           </div>
         </div>
       </div>
@@ -2330,6 +2298,7 @@ export default function App() {
             pops={pops}
             its={its}
             currentUserEmail={currentUser?.email}
+            companyName={currentCompany?.name}
             preselectedDocId={preselectedDocId}
             preselectedDocType={preselectedDocType}
           />
@@ -2627,7 +2596,7 @@ export default function App() {
                       Controle de Documentos e Processos
                     </h2>
                     <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-xl leading-relaxed">
-                      Gerencie, visualize e exporte os Procedimentos Operacionais Padrão (POPs) e as Atribuições de Responsabilidade (ATRs) de propriedade da ACII.
+                      Gerencie, visualize e exporte os Procedimentos Operacionais Padrão (POPs) e as Atribuições de Responsabilidade (ATRs) da sua empresa.
                     </p>
                   </div>
                   <div className="shrink-0 flex items-center justify-center relative z-10">
@@ -2827,173 +2796,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Highlight: Autoridade de Registro (AR) */}
-                <div className="mt-2">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                      Destaque: Novos POPs de Autoridade de Registro (AR)
-                    </h3>
-                    <span className="text-[9px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full uppercase">
-                      Novos
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                    {[
-                      { id: 'POP-020', title: 'Processo de Venda de Certificados Digitais', desc: 'Passo a passo para identificação, validação e emissão de certificados A1 e A3.' },
-                      { id: 'POP-021', title: 'Processo de Venda de Certificados Digitais II', desc: 'Fluxo complementar de controle operacional para venda de certificados.' },
-                      { id: 'POP-022', title: 'Contratação de Segurança para a FECOIMP', desc: 'Diretrizes, orçamentos, seleção e coordenação operacional de segurança.' },
-                      { id: 'POP-023', title: 'Controle de Entrada/Saída de Produtos', desc: 'Formulários, conferência e combate a sinistros ou perdas de produtos expositores.' },
-                      { id: 'POP-024', title: 'Contratação e Coordenação de Limpeza', desc: 'Supervisão de escalas de limpeza, EPIS, vistorias e relatórios de execução.' }
-                    ].map(doc => (
-                      <button
-                        key={doc.id}
-                        onClick={() => {
-                          setSelectedDocId(doc.id);
-                          setSelectedDocType('pop');
-                        }}
-                        className="p-3.5 bg-slate-50 hover:bg-sky-50 dark:bg-slate-950/40 dark:hover:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-sky-300 dark:hover:border-sky-900 rounded-xl text-left transition-all flex gap-3 cursor-pointer group"
-                      >
-                        <div className="w-8 h-8 bg-amber-500/10 group-hover:bg-sky-500/10 text-amber-500 group-hover:text-sky-500 rounded-lg flex items-center justify-center shrink-0 border border-amber-500/20 group-hover:border-sky-500/20 transition-all font-mono text-[10px] font-black">
-                          {doc.id.replace('POP-', '')}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate">
-                            {doc.title}
-                          </h4>
-                          <p className="text-[10px] text-slate-450 dark:text-slate-500 mt-0.5 line-clamp-2">
-                            {doc.desc}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Highlight: Gestão Financeira */}
-                <div className="mt-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                      Destaque: Novos POPs de Gestão Financeira (Financeiro)
-                    </h3>
-                    <span className="text-[9px] font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full uppercase">
-                      Finanças
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                    {[
-                      { id: 'POP-028', title: 'Contas a Pagar e Conciliação', desc: 'Rotinas de lançamento, autorização, calendário de datas fixas, pagamentos e conciliação bancária.' },
-                      { id: 'POP-029', title: 'Contas a Receber e Conciliação Bancária', desc: 'Identificação de receitas (SERASA, Medicor, etc.), remessas de arquivos CNAB e baixas.' },
-                      { id: 'POP-030', title: 'Conferência do Caixa Semanal', desc: 'Auditoria de lançamentos, fluxos de caixa e tratamento de divergências pela gerência.' },
-                      { id: 'POP-031', title: 'Faturamento de Produtos e Serviços', desc: 'Passo a passo do faturamento de SERASA, AC Celular, MEDICOR e FECOIMP.' }
-                    ].map(doc => (
-                      <button
-                        key={doc.id}
-                        onClick={() => {
-                          setSelectedDocId(doc.id);
-                          setSelectedDocType('pop');
-                        }}
-                        className="p-3.5 bg-slate-50 hover:bg-sky-50 dark:bg-slate-950/40 dark:hover:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-sky-300 dark:hover:border-sky-900 rounded-xl text-left transition-all flex gap-3 cursor-pointer group"
-                      >
-                        <div className="w-8 h-8 bg-rose-500/10 group-hover:bg-sky-500/10 text-rose-500 group-hover:text-sky-500 rounded-lg flex items-center justify-center shrink-0 border border-rose-500/20 group-hover:border-sky-500/20 transition-all font-mono text-[10px] font-black">
-                          {doc.id.replace('POP-', '')}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate">
-                            {doc.title}
-                          </h4>
-                          <p className="text-[10px] text-slate-450 dark:text-slate-500 mt-0.5 line-clamp-2">
-                            {doc.desc}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Highlight: Setor Jurídico / Compliance */}
-                <div className="mt-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                      Destaque: Novos POPs de Jurídico & Compliance
-                    </h3>
-                    <span className="text-[9px] font-bold text-teal-500 bg-teal-500/10 border border-teal-500/20 px-2 py-0.5 rounded-full uppercase">
-                      Jurídico
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                    {[
-                      { id: 'POP-032', title: 'Análise de Contratos', desc: 'Objetivo, recebimento/triagem, agendamento, análise técnica detalhada (LGPD, compliance) e parecer.' },
-                      { id: 'POP-033', title: 'Atendimento Parceiro SEBRAE', desc: 'Atendimento, abertura/baixa de MEI, consultas ao SERASA (Concentre/Crednet) e emissão de guias.' },
-                      { id: 'POP-034', title: 'Elaboração de Contratos', desc: 'Elaboração de minutas de contratos seguindo padrões institucionais da ACII, salvaguardas e arquivamento.' }
-                    ].map(doc => (
-                      <button
-                        key={doc.id}
-                        onClick={() => {
-                          setSelectedDocId(doc.id);
-                          setSelectedDocType('pop');
-                        }}
-                        className="p-3.5 bg-slate-50 hover:bg-sky-50 dark:bg-slate-950/40 dark:hover:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-sky-300 dark:hover:border-sky-900 rounded-xl text-left transition-all flex gap-3 cursor-pointer group"
-                      >
-                        <div className="w-8 h-8 bg-teal-500/10 group-hover:bg-sky-500/10 text-teal-600 group-hover:text-sky-500 rounded-lg flex items-center justify-center shrink-0 border border-teal-500/20 group-hover:border-sky-500/20 transition-all font-mono text-[10px] font-black">
-                          {doc.id.replace('POP-', '')}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate">
-                            {doc.title}
-                          </h4>
-                          <p className="text-[10px] text-slate-450 dark:text-slate-500 mt-0.5 line-clamp-2">
-                            {doc.desc}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Highlight: Tecnologia da Informação (TI) */}
-                <div className="mt-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                      Destaque: Novos POPs de TI (Tecnologia da Informação)
-                    </h3>
-                    <span className="text-[9px] font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
-                      TI
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                    {[
-                      { id: 'POP-035', title: 'Help Desk: Suporte Técnico', desc: 'Registro, classificação, atendimento técnico remoto/presencial e encerramento de chamados.' },
-                      { id: 'POP-036', title: 'Backup de Dados', desc: 'Sincronização com o Google Drive das máquinas locais e rotinas de backup do servidor proxy mox.' },
-                      { id: 'POP-040', title: 'Gestão de Segurança e Proteção de Dados', desc: 'Controle de acessos, política de senhas robustas, segurança de rede firewall e conformidade LGPD.' },
-                      { id: 'POP-041', title: 'Manutenção dos Sites da ACII', desc: 'Rotina de levantamento de demandas web, execução, homologação da gerência e deploy final.' }
-                    ].map(doc => (
-                      <button
-                        key={doc.id}
-                        onClick={() => {
-                          setSelectedDocId(doc.id);
-                          setSelectedDocType('pop');
-                        }}
-                        className="p-3.5 bg-slate-50 hover:bg-emerald-50 dark:bg-slate-950/40 dark:hover:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-900 rounded-xl text-left transition-all flex gap-3 cursor-pointer group"
-                      >
-                        <div className="w-8 h-8 bg-emerald-500/10 group-hover:bg-emerald-500/20 text-emerald-600 group-hover:text-emerald-500 rounded-lg flex items-center justify-center shrink-0 border border-emerald-500/20 group-hover:border-emerald-500/30 transition-all font-mono text-[10px] font-black">
-                          {doc.id.replace('POP-', '')}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-450 transition-colors truncate font-display">
-                            {doc.title}
-                          </h4>
-                          <p className="text-[10px] text-slate-450 dark:text-slate-500 mt-0.5 line-clamp-2">
-                            {doc.desc}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </motion.div>
             ) : (
               <motion.div
@@ -3100,6 +2902,7 @@ export default function App() {
                             elementId: 'document-printable-area',
                             fileName: `${docTypeTitle}_${activeDoc.id}_${cleanTitle}.pdf`,
                             documentTitle: `${docTypeTitle} ${activeDoc.id} - ${activeDoc.title}`,
+                            companyName: currentCompany?.name,
                             onProgress: (msg) => setPdfExportProgress(msg)
                           });
                         } catch (err) {
@@ -3188,7 +2991,7 @@ export default function App() {
                       
                       {/* Logo and Brand */}
                       <div className="p-4 flex justify-center items-center md:col-span-1 min-h-[90px] bg-slate-50/50 dark:bg-slate-950/20">
-                        <ACIILogo className="w-44 h-auto" />
+                        <CompanyBrandMark company={currentCompany} className="w-44 h-auto" />
                       </div>
 
                       {/* Header Text / Metadata fields */}
@@ -3647,7 +3450,7 @@ export default function App() {
                           <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col justify-between h-28 bg-slate-50/20 dark:bg-slate-950/10">
                             <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Revisado por</span>
                             <div className="border-t border-slate-200 dark:border-slate-800 pt-2 font-bold text-slate-800 dark:text-slate-200">
-                              Gerência Executiva ACII
+                              Gerência Executiva
                               <span className="text-[9px] block text-slate-400 dark:text-slate-500 font-medium mt-0.5">
                                 Gestão de Processos e Qualidade
                               </span>
@@ -3656,7 +3459,7 @@ export default function App() {
                           <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col justify-between h-28 bg-slate-50/20 dark:bg-slate-950/10">
                             <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Aprovado por</span>
                             <div className="border-t border-slate-200 dark:border-slate-800 pt-2 font-bold text-slate-800 dark:text-slate-200">
-                              Diretoria Executiva ACII
+                              Diretoria Executiva
                               <span className="text-[9px] block text-slate-400 dark:text-slate-500 font-medium mt-0.5">
                                 Vigência desde: {activeDoc.emissionDate}
                               </span>
@@ -3667,8 +3470,8 @@ export default function App() {
 
                       {/* PDF Print Page footer notes */}
                       <div className="pt-8 border-t border-slate-150 dark:border-slate-800 flex justify-between text-[10px] text-slate-400 font-mono">
-                        <span>ACII - Associação Comercial, Industrial e Serviços de Imperatriz</span>
-                        <span>Aprovado por: Gerência Executiva ACII</span>
+                        <span>{currentCompany?.name || currentUser.name}</span>
+                        <span>Aprovado por: Gerência Executiva</span>
                       </div>
 
                     </div>
@@ -3714,7 +3517,7 @@ export default function App() {
                   <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
                     {editingId ? `Editar ${formId}` : `Criar Novo Documento: ${documentTypeSettings[formDocType].label}`}
                   </h3>
-                  <p className="text-3xs text-slate-400">Preencha os campos abaixo para salvar na base local de documentos da ACII</p>
+                  <p className="text-3xs text-slate-400">Preencha os campos abaixo para salvar na base de documentos da empresa</p>
                 </div>
                 <button
                   onClick={() => setIsModalOpen(false)}
@@ -3929,7 +3732,7 @@ export default function App() {
                           type="text"
                           value={formIndirectLeader}
                           onChange={e => setFormIndirectLeader(e.target.value)}
-                          placeholder="Ex: Presidente ACII"
+                          placeholder="Ex: Diretor(a) Executivo(a)"
                           className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-slate-250 focus:outline-none"
                         />
                       </div>
@@ -4266,6 +4069,7 @@ export default function App() {
         onUpdatePermissions={handleUpdatePermissions}
         documentTypeSettings={documentTypeSettings}
         onUpdateDocumentTypeSettings={setDocumentTypeSettings}
+        currentCompany={currentCompany}
         pops={pops}
         atrs={atrs}
         its={its}

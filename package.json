@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "normatiza",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:rules": "firebase emulators:exec --project acii-isolation-test --only firestore \"node --test tests/firestore-rules.isolation.test.mjs\""
+    "test:rules": "firebase emulators:exec --project normatiza-isolation-test --only firestore \"node --test tests/firestore-rules.isolation.test.mjs\""
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

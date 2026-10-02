@@ -39,7 +39,7 @@ let testEnv;
 
 before(async () => {
   testEnv = await initializeTestEnvironment({
-    projectId: 'acii-isolation-test',
+    projectId: 'normatiza-isolation-test',
     firestore: {
       rules: readFileSync('firestore.rules', 'utf8'),
       host: '127.0.0.1',
@@ -226,9 +226,35 @@ test('qualquer sessão autenticada lê a lista de empresas (necessário para a t
   assert.equal(snap.size, 2);
 });
 
-test('ninguém escreve em companies pelo cliente (nem admin) — só script administrativo', async () => {
+test('ninguém CRIA empresa pelo cliente (nem admin) — só script administrativo', async () => {
   const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
   await assertFails(setDoc(doc(db, 'companies', 'gama'), { id: 'gama', name: 'Gama', status: 'ativo' }));
+});
+
+// ── Fase 4: admin sobe logo/cor da PRÓPRIA empresa (nunca nome/status) ──
+
+test('admin da ACII atualiza logo e cor da própria empresa', async () => {
+  const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
+  await assertSucceeds(updateDoc(doc(db, 'companies', 'acii'), {
+    logoUrl: 'https://example.com/logo.png',
+    primaryColor: '#123456'
+  }));
+});
+
+test('admin da ACII NÃO consegue trocar o próprio nome ou reativar/desativar a própria empresa por essa via', async () => {
+  const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
+  await assertFails(updateDoc(doc(db, 'companies', 'acii'), { name: 'ACII Renomeada' }));
+  await assertFails(updateDoc(doc(db, 'companies', 'acii'), { status: 'inativo' }));
+});
+
+test('admin da ACII NÃO atualiza a empresa Beta (nem só logo/cor)', async () => {
+  const db = testEnv.authenticatedContext('uid-admin-acii').firestore();
+  await assertFails(updateDoc(doc(db, 'companies', 'beta'), { logoUrl: 'https://example.com/invasao.png' }));
+});
+
+test('gestor NÃO atualiza o logo/cor da própria empresa (só admin)', async () => {
+  const db = testEnv.authenticatedContext('uid-gestor-acii').firestore();
+  await assertFails(updateDoc(doc(db, 'companies', 'acii'), { logoUrl: 'https://example.com/logo-gestor.png' }));
 });
 
 // ── Fase 3: "gestor de setor" (ATR/POP/IT restritos ao próprio setor) ──

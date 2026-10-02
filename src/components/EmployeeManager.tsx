@@ -517,7 +517,7 @@ export default function EmployeeManager({
                     <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Matrícula (Opcional)</label>
                     <input
                       type="text"
-                      placeholder="Ex: ACII-2026-45"
+                      placeholder="Ex: MAT-2026-045"
                       value={formRegistration}
                       onChange={e => setFormRegistration(e.target.value)}
                       className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500 transition-colors text-xs"
@@ -532,7 +532,7 @@ export default function EmployeeManager({
                     <input
                       type="email"
                       required
-                      placeholder="Ex: colaborador@acii.org.br"
+                      placeholder="Ex: colaborador@empresa.com.br"
                       value={formEmail}
                       onChange={e => setFormEmail(e.target.value)}
                       className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-sky-500 transition-colors text-xs"

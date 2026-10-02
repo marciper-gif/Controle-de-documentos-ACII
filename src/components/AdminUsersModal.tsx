@@ -1,14 +1,15 @@
 import { useState, useEffect, FormEvent, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key, 
+import {
+  X, UserPlus, Users, Trash2, Edit2, ShieldAlert, Key,
   CheckCircle, User, ShieldCheck, Eye, EyeOff, Sliders, Shield, Award, HelpCircle,
   Briefcase, Layers, FileText, Plus, Search, Lock, History, Clock, ArrowUpRight,
-  RotateCcw, Power, Check
+  RotateCcw, Power, Check, Palette, UploadCloud, Loader2, Image as ImageIcon
 } from 'lucide-react';
-import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT, DocumentTypeSettings } from '../types';
+import { UserAccount, Employee, ProfilePermissions, POP, ATR, IT, DocumentTypeSettings, Company } from '../types';
 import { dbSaveUserAccount, dbDeleteUserAccount } from '../lib/firebaseSync';
 import { getDefaultInitialPassword, hashPassword } from '../lib/userManagement';
+import { uploadCompanyLogo, updateCompanyPrimaryColor, validateLogoFile } from '../lib/companyBranding';
 
 interface DocumentLogEntry {
   docId: string;
@@ -33,6 +34,7 @@ interface AdminUsersModalProps {
   onUpdatePermissions: (newPerms: ProfilePermissions) => void;
   documentTypeSettings: DocumentTypeSettings;
   onUpdateDocumentTypeSettings: (newSettings: DocumentTypeSettings) => void;
+  currentCompany: Company | null;
   pops: POP[];
   atrs: ATR[];
   its: IT[];
@@ -51,12 +53,13 @@ export default function AdminUsersModal({
   onUpdatePermissions,
   documentTypeSettings,
   onUpdateDocumentTypeSettings,
+  currentCompany,
   pops,
   atrs,
   its,
   onSelectDoc
 }: AdminUsersModalProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'document_types' | 'content_control' | 'logs'>('content_control');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'profiles' | 'document_types' | 'brand' | 'content_control' | 'logs'>('content_control');
 
   // Fase 3: "admin da empresa cuida de usuários, perfis e tipos de
   // documento" — gestor continua abrindo este modal (Quadro de Acessos
@@ -70,10 +73,48 @@ export default function AdminUsersModal({
   // Acessos — o botão já fica escondido, isto é só um cinto de
   // segurança a mais.
   useEffect(() => {
-    if (!isAdminRole && (activeSubTab === 'users' || activeSubTab === 'profiles' || activeSubTab === 'document_types')) {
+    if (!isAdminRole && (activeSubTab === 'users' || activeSubTab === 'profiles' || activeSubTab === 'document_types' || activeSubTab === 'brand')) {
       setActiveSubTab('content_control');
     }
   }, [isAdminRole, activeSubTab]);
+
+  // ── Marca da empresa (Fase 4) ───────────────────────────────────────
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const [colorSaving, setColorSaving] = useState(false);
+
+  const handleLogoFileChosen = async (file: File | null) => {
+    if (!file || !currentCompany) return;
+    const validationError = validateLogoFile(file);
+    if (validationError) {
+      setLogoError(validationError);
+      return;
+    }
+    setLogoError(null);
+    setLogoUploading(true);
+    try {
+      await uploadCompanyLogo(currentCompany.id, file);
+      // A tela se atualiza sozinha: App.tsx já assina companies/{id} em
+      // tempo real (onSnapshot) — não precisa de nenhum estado local aqui.
+    } catch (err: any) {
+      console.error('Falha ao subir o logo:', err);
+      setLogoError(err?.message || 'Falha ao enviar o logo. Tente novamente.');
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  const handlePrimaryColorChange = async (color: string) => {
+    if (!currentCompany) return;
+    setColorSaving(true);
+    try {
+      await updateCompanyPrimaryColor(currentCompany.id, color);
+    } catch (err) {
+      console.warn('Falha ao salvar a cor da empresa:', err);
+    } finally {
+      setColorSaving(false);
+    }
+  };
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   
@@ -601,7 +642,7 @@ export default function AdminUsersModal({
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
           {/* Subtabs inside Modal */}
-          <div className={`grid grid-cols-2 ${isAdminRole ? 'sm:grid-cols-5' : 'sm:grid-cols-2'} bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1`}>
+          <div className={`grid grid-cols-2 ${isAdminRole ? 'sm:grid-cols-3 md:grid-cols-6' : 'sm:grid-cols-2'} bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80 mb-4 gap-1`}>
             <button
               onClick={() => setActiveSubTab('content_control')}
               className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -650,6 +691,19 @@ export default function AdminUsersModal({
             >
               <FileText className="w-3.5 h-3.5" />
               <span>Tipos de Documento</span>
+            </button>
+            )}
+            {isAdminRole && (
+            <button
+              onClick={() => setActiveSubTab('brand')}
+              className={`py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeSubTab === 'brand'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-450 font-black shadow-3xs border border-emerald-500/15'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5" />
+              <span>Marca</span>
             </button>
             )}
             <button
@@ -1447,6 +1501,77 @@ export default function AdminUsersModal({
                 })}
               </div>
             </div>
+          ) : activeSubTab === 'brand' ? (
+            <div className="space-y-5">
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 flex items-start gap-3">
+                <Palette className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  <p className="font-bold text-slate-800 dark:text-slate-200 mb-1">Identidade visual da sua empresa</p>
+                  <p>
+                    O logo e a cor aqui aparecem no cabeçalho do sistema, na tela de login (quando esta empresa
+                    for selecionada) e nos documentos exportados em PDF — só para quem acessa a conta desta empresa.
+                  </p>
+                </div>
+              </div>
+
+              {!currentCompany ? (
+                <p className="text-xs text-slate-400 text-center py-8">Carregando dados da empresa...</p>
+              ) : (
+                <>
+                  {/* Logo */}
+                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 space-y-3">
+                    <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Logo</label>
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-center overflow-hidden shrink-0">
+                        {currentCompany.logoUrl ? (
+                          <img src={currentCompany.logoUrl} alt={currentCompany.name} className="w-full h-full object-contain" />
+                        ) : (
+                          <ImageIcon className="w-7 h-7 text-slate-300 dark:text-slate-700" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all cursor-pointer">
+                          {logoUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                          {logoUploading ? 'Enviando...' : currentCompany.logoUrl ? 'Trocar logo' : 'Enviar logo'}
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                            className="hidden"
+                            disabled={logoUploading}
+                            onChange={e => {
+                              handleLogoFileChosen(e.target.files?.[0] || null);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                        <p className="text-[10px] text-slate-400">PNG, JPG, WEBP ou SVG — até 2MB.</p>
+                        {logoError && <p className="text-[11px] text-rose-500 font-semibold">{logoError}</p>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Cor principal */}
+                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 space-y-3">
+                    <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cor principal da marca</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={currentCompany.primaryColor || '#10b981'}
+                        onChange={e => handlePrimaryColorChange(e.target.value)}
+                        className="w-12 h-12 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer bg-transparent"
+                      />
+                      <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                        {currentCompany.primaryColor || '#10b981 (padrão)'}
+                      </span>
+                      {colorSaving && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Usada no cabeçalho e na tela de login quando não há logo (iniciais da empresa) e como destaque no formulário de login.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
           ) : activeSubTab === 'logs' ? (
             <div className="space-y-5">
               {/* Banner */}
@@ -1454,7 +1579,7 @@ export default function AdminUsersModal({
                 <History className="w-5 h-5 text-amber-600 shrink-0" />
                 <div>
                   <span className="font-extrabold text-amber-700 dark:text-amber-450 block mb-0.5">Logs de Alterações do Sistema:</span>
-                  Histórico cronológico detalhado contendo todas as ações de criação, emissão e revisões efetuadas nos documentos (ATRs, POPs e ITs) da Associação Comercial, Industrial e de Serviços de Imperatriz (ACII).
+                  Histórico cronológico detalhado contendo todas as ações de criação, emissão e revisões efetuadas nos documentos (ATRs, POPs e ITs) da empresa.
                 </div>
               </div>
 

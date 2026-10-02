@@ -94,13 +94,23 @@ service cloud.firestore {
     // a qualquer sessão autenticada (inclui a anônima) porque a tela de
     // login precisa listar as empresas ativas ANTES de saber a qual
     // empresa o usuário pertence — expõe só nome/id/logo/cor, nada
-    // sensível. Escrita: nenhuma via cliente nesta fase — criação de
-    // empresa é feita por mim via script administrativo (Admin SDK, que
-    // ignora estas regras), conforme decidido para a Fase 3.
+    // sensível. Criação/exclusão: nenhuma via cliente — continuam só
+    // por script administrativo (Admin SDK, que ignora estas regras),
+    // conforme decidido na Fase 3.
+    //
+    // Fase 4: admin da PRÓPRIA empresa pode atualizar o documento, mas
+    // só pra subir logo/cor de marca — `name`, `status` e `id` nunca
+    // mudam por aqui (continuam script-only). Sem essa trava, a mesma
+    // abertura serviria pra um admin se "renomear" ou se reativar
+    // sozinho caso um dia alguém marque a empresa como inativa.
     // ─────────────────────────────────────────────────────────────────
-    match /companies/{companyId} {
+    match /companies/{companyIdParam} {
       allow read: if isAuthenticated();
-      allow write: if false;
+      allow create, delete: if false;
+      allow update: if isAdmin() && companyIdParam == currentCompanyId() &&
+        request.resource.data.name == resource.data.name &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.id == resource.data.id;
     }
 
     // ─────────────────────────────────────────────────────────────────
